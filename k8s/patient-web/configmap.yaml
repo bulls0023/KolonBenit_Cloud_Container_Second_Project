@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patient-web-config
+  namespace: app
+data:
+  BFF_BASE_URL: "http://bff-svc.app.svc.cluster.local:8080"

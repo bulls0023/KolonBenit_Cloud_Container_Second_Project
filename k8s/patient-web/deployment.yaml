@@ -1,0 +1,33 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-web
+  namespace: app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: patient-web
+  template:
+    metadata:
+      labels:
+        app: patient-web
+    spec:
+      containers:
+      - name: patient-web
+        image: 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/patient-web:dev-main
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
