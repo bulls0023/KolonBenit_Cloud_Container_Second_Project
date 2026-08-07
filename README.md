@@ -6,11 +6,12 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 버전 | v1.0 |
+| 문서 버전 | v1.1 |
 | 대상 환경 | `dev` (단일 환경) |
 | AWS 리전 | `ap-northeast-2` (서울) |
 | 프로젝트 식별자 | `hybrid-toy` |
 | Terraform 최소 버전 | `>= 1.10.0` |
+| 최종 갱신 | 2026-08-07 (§19 추가) |
 
 ---
 
@@ -35,6 +36,7 @@
 - [§16. 금지 사항](#16-금지-사항)
 - [§17. 미결정 사항 및 백로그](#17-미결정-사항-및-백로그)
 - [§18. 온프레미스(OKD)팀 가이드](#18-온프레미스okd팀-가이드)
+- [§19. 사전작업 수행 기록](#19-사전작업-수행-기록)
 
 ---
 
@@ -947,13 +949,14 @@ manage_master_user_password = true  # Secrets Manager 자동 생성 + 관리
 
 ### 13.5 적용 우선순위 — **apply 전 결정 필요**
 
-| 항목 | 권고 | 이유 | 팀 결정 |
-|---|---|---|---|
-| TLS 강제 (§13.2) | **지금 적용** | 실제로 빠진 유일한 구멍. 나중에 켜면 앱 전면 장애 | 적용 /|
-| Secrets Manager (§13.3) | **지금 적용** | state 평문 노출 제거. 나중에 바꾸면 앱 설정 재작업 | ☐ 적용 /|
-| CMK (§13.1) | 보류 | 현 요건 대비 오버스펙 | ☐ 사용안함|
+| 항목 | 권고 | 이유 | 팀 결정 | 결정일 |
+|---|---|---|---|---|
+| TLS 강제 (§13.2) | **지금 적용** | 실제로 빠진 유일한 구멍. 나중에 켜면 앱 전면 장애 | ✅ **적용** | 2026-08-07 |
+| Secrets Manager (§13.3) | **지금 적용** | state 평문 노출 제거. 나중에 바꾸면 앱 설정 재작업 | ✅ **적용** | 2026-08-07 |
+| CMK (§13.1) | 보류 | 현 요건 대비 오버스펙 | ❌ **미적용** (§17.3 백로그) | 2026-08-07 |
 
-> 결정 후 이 표에 체크하고 커밋한다. 결정을 기록하지 않으면 나중에 "왜 안 했지"로 재논의가 반복된다.
+> ✅ **결정 완료.** 구현 상세는 §19.4 참조.
+> TLS 강제에 따라 **WAS 담당은 JDBC URL에 `useSSL=true&requireSSL=true` 필수** — §19.6 공지 사항 참조.
 
 ---
 
@@ -1088,12 +1091,12 @@ kubectl -n app run tmp --rm -it --image=busybox --restart=Never -- \
 
 ### 17.1 결정 필요
 
-| # | 항목 | 선택지 | 기한 |
-|---|---|---|---|
-| 1 | TLS 강제 적용 여부 (§13.2) | 적용 **apply 전** |
-| 2 | Secrets Manager 전환 (§13.3) | 적용| **apply 전** |
-| 3 | ECR 태그 정책 (§8.3) | IMMUTABLE| **apply 전** |
-| 4 | 내부 흐름 도메인명 | — | P3 전 |
+| # | 항목 | 결정 | 기한 | 상태 |
+|---|---|---|---|---|
+| 1 | TLS 강제 적용 여부 (§13.2) | **적용** | apply 전 | ✅ 확정 2026-08-07 |
+| 2 | Secrets Manager 전환 (§13.3) | **적용** | apply 전 | ✅ 확정 2026-08-07 |
+| 3 | ECR 태그 정책 (§8.3) | **IMMUTABLE** | apply 전 | ✅ 확정 2026-08-07 |
+| 4 | 내부 흐름 도메인명 | — | P3 전 | ⬜ 미정 |
 
 ### 17.2 운영 전환 시 필수 변경
 
@@ -1290,3 +1293,502 @@ OKD Web Pod가 호출하는 API 스펙은 **BFF 담당과 사전 합의**한다.
 | 새 트러블슈팅 발견 | §15에 추가 |
 | 결정 사항 확정 | §13.5 또는 §17.1 표에 기록 |
 | 문서와 코드 불일치 발견 | **문서가 틀린 것.** 즉시 PR |
+
+---
+
+## §19. 사전작업 수행 기록
+
+> 이 섹션은 **§8(apply 전 필수 선조치)과 §10 P0의 실제 수행 결과**를 기록한다.
+> 문서(계획)와 실제(수행)의 대조가 가능해야 나중에 "이거 했었나"로 되돌아가지 않는다.
+> **기록 시점: 2026-08-07 / 상태: P0 완료, P1 착수 전**
+
+### 19.1 P0 수행 요약
+
+| # | §10 P0 항목 | 상태 | 근거 |
+|---|---|---|---|
+| 1 | §8 선조치 3가지 완료 | ✅ | §19.2 / §19.3 / §19.5 |
+| 2 | 팀원 IAM User 생성 + AccessKey 배포 | ✅ | §19.2 |
+| 3 | Cloudflare 도메인 등록, Zone **Active** | ✅ | §19.7 |
+| 4 | `terraform fmt -recursive && terraform validate` | ✅ | §19.8 — 2개 구성 전부 통과 |
+| 5 | README 공유 + §6 표준 합의 | ✅ | §19.6 |
+
+> §6(컨테이너 표준·환경변수 계약·명명 규칙)은 **문서 내용 그대로 채택**한다. 팀별 변형 없음.
+
+---
+
+### 19.2 §8.1 EKS 접근 권한 — 수행 내역
+
+#### 생성한 IAM User
+
+| IAM User | 담당 | 콘솔 액세스 | AccessKey |
+|---|---|---|---|
+| `kusweb` | EKS팀 — Web | ❌ 미부여 | ✅ 발급·배포 |
+| `kusbff` | EKS팀 — BFF | ❌ 미부여 | ✅ 발급·배포 |
+| `kuswas` | EKS팀 — WAS | ❌ 미부여 | ✅ 발급·배포 |
+| `kusdb` | DB팀 | ❌ 미부여 | ✅ 발급·배포 |
+
+> **콘솔 액세스를 부여하지 않은 이유:** `aws eks update-kubeconfig` 및 `kubectl`은 내부적으로 `aws eks get-token`을 호출해 **AccessKey/SecretKey 기반 STS 토큰**으로 인증한다. 콘솔 비밀번호는 이 흐름에 관여하지 않는다. 불필요한 비밀번호 정책·MFA 관리 오버헤드만 늘어난다.
+
+#### 반영한 Terraform 코드 — 3개 파일
+
+`modules/eks/main.tf` — **upstream `module "eks"` 블록 *안*에 위치**
+
+```hcl
+access_entries = {
+  for name, arn in var.developer_iam_arns : name => {
+    principal_arn = arn
+    policy_associations = {
+      admin = {
+        policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+        access_scope = { type = "cluster" }
+      }
+    }
+  }
+}
+```
+
+`modules/eks/variables.tf`
+
+```hcl
+variable "developer_iam_arns" {
+  description = "클러스터 접근이 필요한 팀원 IAM ARN"
+  type        = map(string)
+  default     = {}
+}
+```
+
+`envs/dev/main.tf` — **`module "eks"` 블록 *안*에 위치**
+
+```hcl
+developer_iam_arns = {
+  web = "arn:aws:iam::<ACCOUNT_ID>:user/kusweb"
+  bff = "arn:aws:iam::<ACCOUNT_ID>:user/kusbff"
+  was = "arn:aws:iam::<ACCOUNT_ID>:user/kuswas"
+  db  = "arn:aws:iam::<ACCOUNT_ID>:user/kusdb"
+}
+```
+
+> ⚠️ **`<ACCOUNT_ID>`는 4줄 모두 동일한 하나의 값**이다. IAM User 4명은 같은 AWS 계정 안에 있다.
+> ⚠️ **IAM Group ARN은 `principal_arn`에 사용할 수 없다.** AWS가 지원하지 않는다 — 반드시 개별 User ARN.
+
+#### 🚨 §8.1이 다루지 않는 부분 — IAM 정책은 별개다
+
+`access_entries`는 **클러스터 내부 K8s RBAC 권한**만 부여한다. AWS API 호출 권한(IAM 정책)은 별도로 붙여야 한다.
+
+```
+IAM 정책 (eks:DescribeCluster)  →  aws eks update-kubeconfig 성공
+              ↓
+EKS access_entries (ClusterAdmin) →  kubectl get nodes 성공
+```
+
+**둘 중 하나만 있으면 G1을 통과할 수 없다.**
+
+| 대상 | 정책 | 방식 |
+|---|---|---|
+| 4명 전원 | `eks:DescribeCluster` (클러스터 ARN 한정) | 인라인 정책 `hybrid-toy-eks-describe` |
+| kusweb, kusbff, kuswas | `AmazonEC2ContainerRegistryPowerUser` | AWS 관리형 정책 직접 연결 |
+| kusdb | `secretsmanager:GetSecretValue` | ⏳ **apply 후** — §19.9 |
+
+인라인 정책 JSON:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "eks:DescribeCluster",
+      "Resource": "arn:aws:eks:ap-northeast-2:<ACCOUNT_ID>:cluster/hybrid-toy-eks"
+    }
+  ]
+}
+```
+
+> `eks:DescribeCluster`만 부여하는 AWS 관리형 정책은 **존재하지 않는다.** 인라인으로 직접 작성해야 한다.
+> IAM 콘솔에서 `AmazonEKS*`로 검색해 나오는 정책들(`AmazonEKSClusterPolicy`, `AmazonEKSWorkerNodePolicy` 등)은 전부 **서비스 롤·노드 롤용**이며 Terraform이 자동 생성한다. 사람(IAM User)에게 붙이지 않는다.
+
+**최종 권한 매트릭스**
+
+| User | `hybrid-toy-eks-describe` | `AmazonEC2ContainerRegistryPowerUser` | Secrets Manager |
+|---|---|---|---|
+| kusweb | ✅ | ✅ | — |
+| kusbff | ✅ | ✅ | — |
+| kuswas | ✅ | ✅ | — |
+| kusdb | ✅ | — | ⏳ apply 후 |
+
+> 💡 인원 변동이 잦다면 IAM Group(`hybrid-toy-devs` 4명 / `hybrid-toy-eks-team` 3명)으로 묶어 관리하는 편이 누락이 없다. 단 §8.1의 `access_entries`는 그룹으로 대체 불가 — 개별 User ARN 유지.
+
+---
+
+### 19.3 §8.2 S3 state 버킷명 — 확정
+
+| 항목 | 값 |
+|---|---|
+| 버킷명 | **`hybrid-toy-tfstate-kuspital`** |
+| 반영 파일 1 | `backend-bootstrap/variables.tf` |
+| 반영 파일 2 | `envs/dev/backend.tf` |
+
+> 두 파일의 값이 다르면 `terraform init` 단계에서 즉시 실패한다. 동일 값 확인 완료.
+
+---
+
+### 19.4 §13.2 / §13.3 RDS 보안 — 실제 코드 반영
+
+#### TLS 강제 (§13.2) — 서버 측
+
+`modules/rds/main.tf`에 파라미터 그룹 **신규 리소스** 추가:
+
+```hcl
+resource "aws_db_parameter_group" "this" {
+  name_prefix = "${var.project_name}-rds-"
+  family      = "mysql8.0"
+
+  parameter {
+    name  = "require_secure_transport"
+    value = "ON"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = var.common_tags
+}
+```
+
+#### Secrets Manager 전환 (§13.3) + 파라미터 그룹 연결
+
+`modules/rds/main.tf`의 **기존 `aws_db_instance` 블록을 수정** (새 블록 생성 아님):
+
+```hcl
+resource "aws_db_instance" "this" {
+  identifier     = "${var.project_name}-rds"
+  engine         = var.engine
+  engine_version = var.engine_version
+  instance_class = var.instance_class
+
+  allocated_storage = var.allocated_storage
+  storage_encrypted = true
+
+  db_name  = var.db_name
+  username = var.db_username
+
+  manage_master_user_password = true                             # §13.3 — Secrets Manager 자동 생성/관리
+  parameter_group_name        = aws_db_parameter_group.this.name # §13.2 — TLS 강제
+
+  db_subnet_group_name   = aws_db_subnet_group.this.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+
+  multi_az            = false
+  publicly_accessible = false
+  skip_final_snapshot = true
+
+  tags = var.common_tags
+}
+```
+
+#### 변경 파일 전체 목록 — 6개
+
+| # | 파일 | 조치 |
+|---|---|---|
+| 1 | `modules/rds/main.tf` | `password` 인자 삭제 / `manage_master_user_password` + `parameter_group_name` 추가 / 파라미터 그룹 리소스 추가 |
+| 2 | `modules/rds/variables.tf` | `variable "db_password"` 블록 삭제 |
+| 3 | `modules/rds/outputs.tf` | 마스터 시크릿 ARN output 추가 |
+| 4 | `envs/dev/variables.tf` | `variable "db_password"` 블록 삭제 |
+| 5 | `envs/dev/main.tf` | `module "rds"` 블록의 `db_password = var.db_password` 전달 인자 삭제 |
+| 6 | `envs/dev/terraform.tfvars.example` | `db_password` 항목 삭제 |
+| 7 | `envs/dev/outputs.tf` | 상위 output 노출 추가 |
+
+추가한 output:
+
+```hcl
+# modules/rds/outputs.tf
+output "db_instance_master_user_secret_arn" {
+  value = aws_db_instance.this.master_user_secret[0].secret_arn
+}
+
+# envs/dev/outputs.tf
+output "rds_master_secret_arn" {
+  value = module.rds.db_instance_master_user_secret_arn
+}
+```
+
+#### ⚠️ 이번 작업에서 실제로 발생한 실수 3건 — 재발 방지
+
+| 증상 (`terraform validate` 에러) | 원인 | 교훈 |
+|---|---|---|
+| `Duplicate resource "aws_db_instance"` | §13.2 안내의 `# aws_db_instance 에 추가` 예시를 **새 리소스 블록으로 복사** | "추가"는 **기존 블록 안에 한 줄** 넣으라는 뜻 |
+| `An argument named "access_entries" is not expected here` | `module "eks"` 블록 **밖**(파일 최상위)에 작성 | 모듈 입력 인자는 반드시 호출 블록 안 |
+| `An argument named "developer_iam_arns" is not expected here` | 호출 측만 작성하고 `modules/eks/variables.tf`에 **변수 선언 누락** | 모듈 인자는 **호출부 + 선언부** 양쪽 필요 |
+
+> `terraform fmt -recursive` 실행 후 들여쓰기를 보면 블록 소속이 즉시 보인다. 왼쪽 끝에 붙어 있으면 블록 밖이다.
+
+#### `storage_encrypted` vs `useSSL` — 혼동 주의
+
+| | `storage_encrypted = true` (§13.1) | `useSSL=true` (§13.2) |
+|---|---|---|
+| 계층 | 저장 암호화 (at-rest) | 전송 암호화 (in-transit) |
+| 보호 대상 | 디스크·스냅샷·백업 | WAS ↔ RDS 네트워크 패킷 |
+| 설정 위치 | Terraform (RDS 인스턴스) | **WAS의 JDBC 접속 문자열** |
+
+**완전히 독립적인 두 방어선이다.** 하나가 다른 하나를 대체하지 않는다.
+
+---
+
+### 19.5 §8.3 ECR 태그 정책 — IMMUTABLE 확정
+
+| 항목 | 결정 |
+|---|---|
+| `image_tag_mutability` | **`IMMUTABLE`** 유지 |
+| 결과 | `:latest` 재푸시 불가. git short SHA 태그 강제 |
+| 공지 | EKS팀 3명 공지 완료 (§19.6) |
+
+---
+
+### 19.6 팀별 공지 사항 — 전달 완료
+
+#### → EKS팀 전원 (kusweb / kusbff / kuswas)
+
+```
+ECR image_tag_mutability = IMMUTABLE 적용됨.
+:latest 태그 푸시는 실패한다. 반드시 git short SHA 사용:
+
+  TAG=$(git rev-parse --short HEAD)
+  docker build --platform linux/amd64 -t $REGISTRY/hybrid-toy/<서비스>:$TAG .
+
+Apple Silicon 사용 시 --platform linux/amd64 미지정하면
+파드가 exec format error로 크래시한다.
+```
+
+#### → WAS 담당 (kuswas) — 🚨 최우선
+
+```
+RDS에 require_secure_transport = ON 적용됨 (§13.2).
+JDBC URL에 반드시 TLS 옵션 포함할 것:
+
+  jdbc:mysql://<RDS엔드포인트>:3306/commondb?useSSL=true&requireSSL=true
+
+미적용 시 DB 커넥션 100% 실패한다.
+서버 인증서 검증(trustCertificateKeyStoreUrl)은 뼈대 단계 범위 밖 — §17 백로그.
+```
+
+> ⏱️ **타이밍:** WAS의 JDBC URL 수정은 **P2 시점(§11.3-①)** 작업이다. P1 apply의 선행조건이 아니다.
+> RDS를 **처음부터 TLS 강제 상태로 생성**하므로 §13.2의 "나중에 켜면 전면 장애" 리스크는 이 프로젝트에 해당하지 않는다. WAS 담당이 코드 작성 시점에 알고 있기만 하면 된다.
+
+#### → DB팀 (kusdb)
+
+```
+RDS 마스터 비밀번호는 Secrets Manager가 관리한다 (§13.3).
+tfvars에 비밀번호 없음. apply 후 아래로 조회:
+
+  aws secretsmanager get-secret-value \
+    --secret-id $(terraform output -raw rds_master_secret_arn) \
+    --query SecretString --output text
+
+이 admin 자격증명은 app_was 계정 생성(§12.3)에만 사용한다.
+WAS 담당에게는 app_was 계정만 전달 (§16-7).
+
+REQUIRE SSL: TLS 강제가 적용되었으므로 §12.3의
+ALTER USER 'app_was'@'%' REQUIRE SSL; 를 적용한다.
+```
+
+---
+
+### 19.7 §10 P0-3 도메인 — Cloudflare Registrar 직접 구매
+
+| 항목 | 상태 |
+|---|---|
+| 구매처 | **Cloudflare Registrar** (직접 구매) |
+| Zone 생성 | 구매 시 자동 |
+| 네임서버 이전 | **불필요** |
+| Zone 상태 | ✅ **Active** 확인 완료 |
+
+> §10 P0-3의 "네임서버 이전 (최대 24시간 전파 대기)"은 **타사 등록기관에서 구매한 도메인**을 가정한 절차다.
+> Cloudflare Registrar 구매 도메인은 Cloudflare가 등록기관이자 DNS 제공자이므로 **이관 절차 자체가 존재하지 않는다.** 구매 즉시 Active.
+
+⏳ **남은 작업:** `envs/dev/terraform.tfvars`의 `alb_domain_name`을 **실제 구매 도메인**으로 교체 (§19.8 참조).
+
+---
+
+### 19.8 §10 P0-4 검증 절차 — 문서에 없던 함정
+
+#### `terraform validate` 실행 전 알아야 할 것
+
+`envs/dev`는 S3 backend를 사용하는데, **버킷이 아직 없다**(P1-1 이전). 일반 `terraform init`은 backend 초기화 단계에서 실패한다.
+
+```powershell
+# 포맷 — infra/ 루트에서. 유일하게 재귀 동작하는 명령
+cd infra
+terraform fmt -recursive
+
+# 검증 — envs/dev 에서. backend 건너뛰기 필수
+cd envs\dev
+copy terraform.tfvars.example terraform.tfvars
+terraform init -backend=false
+terraform validate
+
+# backend-bootstrap 은 로컬 backend라 정상 init 가능
+cd ..\..\backend-bootstrap
+terraform init
+terraform validate
+```
+
+| 명령 | 실행 위치 | 재귀 여부 |
+|---|---|---|
+| `terraform fmt -recursive` | `infra/` 루트 | ✅ 하위 모듈 전부 |
+| `terraform init` / `validate` | `envs/dev/` | ❌ 현재 디렉토리만 |
+| `terraform init` / `validate` | `backend-bootstrap/` | ❌ 현재 디렉토리만 |
+
+> ⚠️ `infra/` 루트에서 `terraform init`을 실행하면 `Terraform initialized in an empty directory!`가 뜬다. **에러는 아니지만 아무것도 검증되지 않은 것**이다. Terraform은 하위 디렉토리를 재귀 탐색하지 않는다. 생성된 `.terraform/`은 삭제한다.
+
+> ⚠️ `terraform init -backend=false`는 **검증 전용**이다. P1-1(버킷 생성) 완료 후 `envs/dev`에서 **정식 `terraform init`을 다시 실행**해야 state가 S3에 연결된다.
+
+#### ✅ 실행 결과 (2026-08-07)
+
+| 대상 구성 | `init` | `validate` |
+|---|---|---|
+| `envs/dev/` | ✅ (`-backend=false`) | ✅ Success (경고 1건 — 무해, 아래 참조) |
+| `backend-bootstrap/` | ✅ | ✅ Success |
+
+**init이 해석한 실제 버전 — §5 고정 버전과 대조**
+
+| 항목 | §5 고정 | 실제 해석 | 판정 |
+|---|---|---|---|
+| AWS Provider | `~> 6.0` | `6.58.0` | ✅ |
+| `terraform-aws-modules/eks/aws` | `~> 21.0` | `21.24.2` | ✅ |
+| `terraform-aws-modules/vpc/aws` | `~> 5.0` | `5.21.0` | ✅ |
+| `terraform-aws-modules/iam/aws` | `~> 5.0` | `5.60.0` | ✅ |
+
+부수 provider(`tls`, `time`, `cloudinit`, `null`)는 EKS 모듈이 내부적으로 요구하는 전이 의존성이다. 직접 선언하지 않는다.
+
+**발생한 경고 — 조치 불필요**
+
+```
+Warning: Deprecated value used
+  on .terraform\modules\eks.lbc_irsa\...\main.tf line 9, in locals:
+   9:   region = data.aws_region.current.name
+  name is deprecated. Use region instead.
+```
+
+| 항목 | 내용 |
+|---|---|
+| 발생 위치 | `.terraform/modules/` 하위 — **다운로드된 upstream 모듈 코드** |
+| 원인 | AWS Provider v6에서 `aws_region` 데이터 소스의 `name` 속성이 deprecated. `terraform-aws-modules/iam` v5.60.0이 아직 구버전 표기 사용 |
+| 우리 코드 영향 | **없음.** 우리가 작성한 `.tf` 파일의 문제가 아니다 |
+| 조치 | 없음. upstream 모듈 업데이트 시 자연 해소 |
+
+> ⚠️ `.terraform/` 하위 경로에서 발생하는 경고는 **직접 수정하지 않는다.** 그 디렉토리는 `terraform init`이 재생성하는 캐시이며, 손대도 다음 init에서 덮어쓰인다. 우리 코드(`envs/`, `modules/`) 경로의 경고만 조치 대상이다.
+
+**뒷정리 완료:** `infra/` 루트에서 잘못 생성됐던 `.terraform/` 삭제.
+
+#### tfvars 취급
+
+| 파일 | 내용 | Git |
+|---|---|---|
+| `terraform.tfvars.example` | `alb_domain_name = "app.example.com"` 플레이스홀더 유지 | ✅ 커밋 |
+| `terraform.tfvars` | **실제 구매 도메인**으로 교체 | ❌ 커밋 금지 |
+
+> 검증 단계에서는 example 값(`app.example.com`)으로도 `validate`가 통과한다.
+> 그러나 **P1-3 apply 전에 반드시 실제 도메인으로 교체**해야 한다. 미교체 시 소유하지 않은 도메인에 ACM 인증서를 발급하려 해 검증이 영원히 Pending에 머문다(§15.1).
+
+#### Git 초기화 순서 — `.gitignore` 우선
+
+```powershell
+git init
+git branch -M main
+# ↓ .gitignore 를 먼저 만든다. add 이후에 만들면 이미 추적된 파일은 계속 추적된다
+git status --porcelain                          # tfstate/tfvars 가 목록에 없는지
+git check-ignore -v envs/dev/terraform.tfvars   # 매칭 라인이 출력되어야 정상
+```
+
+`.gitignore` 필수 항목:
+
+```gitignore
+**/.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+*.tfvars
+!*.tfvars.example
+*.pem
+*.key
+.env
+```
+
+- `backend-bootstrap/`은 **로컬 backend**이므로 apply 후 해당 디렉토리에 `terraform.tfstate`가 생성된다. 반드시 제외.
+- `.terraform.lock.hcl`은 **커밋한다.** §5의 버전 고정 원칙에 부합.
+
+#### 🔒 리포지토리 공개 범위
+
+`envs/dev/main.tf`에 **AWS 계정 ID 12자리 + IAM User명 4개**가 평문으로 들어간다. 자격증명은 아니나 권한 열거·소셜 엔지니어링의 출발점이 된다. **Private 리포지토리로 운영한다.**
+
+---
+
+### 19.9 apply 후 즉시 수행할 잔여 작업
+
+| # | 작업 | 대상 | 트리거 |
+|---|---|---|---|
+| 1 | RDS 마스터 시크릿 ARN 확인 | 인프라 리드 | P1-3 완료 직후 |
+| 2 | `kusdb`에 `secretsmanager:GetSecretValue` 인라인 정책 부착 (ARN 한정) | 인프라 리드 | 1번 완료 후 |
+| 3 | `alb_domain_name` 실제 도메인 반영 확인 | 인프라 리드 | **P1-3 apply 전** |
+
+```bash
+# 1번
+terraform output -raw rds_master_secret_arn
+# 또는
+aws rds describe-db-instances \
+  --db-instance-identifier hybrid-toy-rds \
+  --query "DBInstances[0].MasterUserSecret.SecretArn" --output text
+```
+
+```json
+// 2번 — 정책명: hybrid-toy-rds-master-secret-read
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "<위에서 확인한 실제 Secret ARN>"
+    }
+  ]
+}
+```
+
+> `"Resource": "*"`는 사용하지 않는다. 시크릿 ARN은 apply 후에야 확정되므로 이 작업만 P1 이후로 미룬 것이다.
+
+---
+
+### 19.10 apply 전 최종 확인 체크리스트
+
+- [ ] `envs/dev/outputs.tf`에 G1 공유 항목 **5개 전부** 존재
+  - `ecr_repository_urls` / `rds_endpoint` / `acm_certificate_arn` / `lbc_irsa_role_arn` / `rds_master_secret_arn`
+  - ⚠️ **`lbc_irsa_role_arn` 누락 시 §10 P1-5의 LB Controller 설치가 불가능**해 ALB 생성·G2 전체가 멈춘다
+- [ ] `var.engine_version`이 **`8.0.x` 계열** — 파라미터 그룹 `family = "mysql8.0"`과 정합
+- [ ] `envs/dev` 전 파일에서 `db_password` 잔재 0건
+- [ ] `developer_iam_arns` 4줄의 계정 ID가 **모두 동일**
+- [ ] `terraform.tfvars`의 `alb_domain_name`이 **실제 구매 도메인**
+- [x] `terraform fmt -recursive` 및 `terraform validate` 통과 — 2026-08-07 (§19.8)
+- [ ] `git status --porcelain`에 `*.tfstate` / `*.tfvars` 없음
+- [ ] 리포지토리 **Private**
+
+---
+
+### 19.11 다음 단계
+
+```
+§19 완료
+   ↓
+§10 P1-1  backend-bootstrap apply (최초 1회, 영구 재실행 금지)
+   ↓
+§10 P1-2  ECR 선행 apply → EKS팀 3명 즉시 언블로킹
+   ↓
+§10 P1-3  전체 apply (EKS ~15분 + RDS ~10분)
+   ↓
+§10 P1-4  ACM 검증 CNAME 등록 (⚠️ 반드시 회색 구름 = DNS only)
+   ↓
+§10 P1-5  kubeconfig + AWS Load Balancer Controller 설치
+   ↓
+🚩 G1 선언
+```
