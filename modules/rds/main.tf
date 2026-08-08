@@ -9,7 +9,7 @@ resource "aws_security_group" "rds" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "EKS 노드/파드에서만 접근 허용"
+    description     = "MySQL from EKS nodes only"
     from_port       = var.db_port
     to_port         = var.db_port
     protocol        = "tcp"

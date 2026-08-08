@@ -6,12 +6,12 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 버전 | v1.6 |
+| 문서 버전 | v2.0 |
 | 대상 환경 | `dev` (단일 환경) |
 | AWS 리전 | `ap-northeast-2` (서울) |
 | 프로젝트 식별자 | `hybrid-toy` |
 | Terraform 최소 버전 | `>= 1.10.0` |
-| 최종 갱신 | 2026-08-08 (코드 결함 4건 수정 — apply 재진입 가능) |
+| 최종 갱신 | 2026-08-08 (P1-3 완료 — 인프라 생성 완료) |
 
 ---
 
@@ -36,7 +36,8 @@
 - [§16. 금지 사항](#16-금지-사항)
 - [§17. 미결정 사항 및 백로그](#17-미결정-사항-및-백로그)
 - [§18. 온프레미스(OKD)팀 가이드](#18-온프레미스okd팀-가이드)
-- [§19. 사전작업 수행 기록](#19-사전작업-수행-기록)
+- [§19. 사전작업 기록 및 잔여 과제](#19-사전작업-기록-및-잔여-과제)
+- [§20. P1 실행 기록](#20-p1-실행-기록)
 
 ---
 
@@ -1452,70 +1453,16 @@ git ls-files | Select-String "tfvars|tfstate|\.pem|\.key"  # example 외 0건 = 
 
 ---
 
-### 19.7 앞으로 할 일
+### 19.7 P0 종료 — 이후 진행
 
-#### P0 마무리 — 코드 push (⬅ 현재 위치)
+P0 산출물을 push한 시점에서 사전작업은 종료된다.
 
 ```powershell
-cd F:\myterraform
-git add .
 git commit -m "[infra] EKS 애드온 before_compute 지정, DB 전용 라우트테이블 생성, IAM ARN 매핑 교정"
-git push          # upstream 미설정 시: git push -u origin main
+git push
 ```
 
-#### P1 — 인프라 리드 단독 (약 40분)
-
-> 🚨 **여기서부터 실제 AWS 리소스가 생성된다. 과금 시작 지점이다.**
-
-| # | 작업 | 명령 / 비고 |
-|---|---|---|
-| 1 | state 버킷 생성 | `backend-bootstrap` → `init` → `apply` (**최초 1회, 영구 재실행 금지**) |
-| 2 | `envs/dev` 정식 init | 버킷 생성 후 `terraform init` (검증용 `-backend=false` 무효화) |
-| 3 | ECR 선행 apply | `apply -target=module.ecr` → `output ecr_repository_urls` 즉시 EKS팀 공유 |
-| 4 | 전체 apply | `plan -out=tfplan` → `apply tfplan` (EKS ~15분 + RDS ~10분) |
-| 5 | ACM 검증 CNAME 등록 | Cloudflare DNS, **⚪ 회색 구름 필수** |
-| 6 | kubeconfig + `app` 네임스페이스 | `aws eks update-kubeconfig` → `kubectl get nodes` |
-| 7 | LB Controller 설치 | Helm, `lbc_irsa_role_arn` 필요 |
-| 8 | **kusdb에 Secrets Manager 권한 부착** | apply 후 확정된 Secret ARN 한정 |
-| 9 | 🚩 **G1 선언** | output 전체 공유 + 전원 `kubectl get nodes` 성공 |
-
-**P1-1 실행 시 주의**
-
-```powershell
-cd F:\myterraform\backend-bootstrap
-terraform plan -out=tfplan     # S3 버킷 + versioning + encryption + PAB = 4개 내외
-terraform apply tfplan
-terraform output               # state_bucket_name = hybrid-toy-tfstate-kuspital 확인
-```
-
-| # | 주의 |
-|---|---|
-| 1 | **이번이 처음이자 마지막 apply다.** `prevent_destroy`로 재실행 시 충돌 (§16-2) |
-| 2 | 생성되는 `backend-bootstrap/terraform.tfstate`는 로컬 파일 — `.gitignore` 적용 확인됨 |
-| 3 | 버킷명은 **전역 유일**. `BucketAlreadyExists` 발생 시에만 변경하되 `envs/dev/backend.tf`도 **동시 수정** |
-| 4 | 버킷 생성 후 `envs/dev`에서 **정식 `terraform init` 재실행** — 검증용 `-backend=false` 상태가 무효화된다 |
-
-#### P2 — 3팀 병렬 (1~2일)
-
-| 주체 | 작업 |
-|---|---|
-| EKS팀 | 이미지 빌드·푸시 → **WAS → BFF → Web 순** 배포 → Ingress 작성 |
-| DB팀 | 임시 파드로 RDS 접속 → `commondb` DDL → `app_was` 계정 발급 |
-| 인프라 리드 | Cloudflare SSL/TLS **Full (strict)** / `www` CNAME 등록(🟠 주황) / WAF·Rate Limit·Bot Fight |
-| — | 🚩 **G2** — 브라우저 → `www` → patient-web → BFF → WAS → DB |
-
-#### P3 — 내부 흐름 (약 반나절)
-
-| 주체 | 작업 |
-|---|---|
-| 인프라 리드 | Tunnel 생성 → Public Hostname `staff-api...` → Access App → **Policy Action = `Service Auth`** → Service Token 발급 |
-| BFF 담당 | cloudflared Deployment 배포 (replicas 2) |
-| OKD팀 | Service Token Secret 생성 → Web Pod에서 호출 |
-| — | 🚩 **G3** — OKD Pod → `200 application/json` 수신 |
-
-#### 종료 시
-
-- [ ] `terraform destroy` — 미실행 시 EKS $0.10/h + NAT + RDS가 계속 과금된다
+**P1 이후 실행 기록은 §20 참조.**
 
 ---
 
@@ -1746,3 +1693,265 @@ terraform show -no-color tfplan > plan.txt
 | 4 | `manage_master_user_password` | `true` / `password` 항목 부재 |
 
 > 🚨 **plan 파일을 거치지 않은 apply는 위 4건을 전부 통과시킨다(§4.2).**
+
+---
+
+## §20. P1 실행 기록
+
+> **기준일: 2026-08-08 / 상태: P1-3 완료 — 인프라 생성 완료, P1-4 진입 대기**
+
+### 20.1 진행 현황
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| P1-1 | state 버킷 생성 | ✅ |
+| P1-2 | ECR 선행 apply | ✅ |
+| P1-3 | 전체 apply | ✅ |
+| P1-4 | ACM 인증서 검증 | ⬜ |
+| P1-5 | kubeconfig + LB Controller 설치 | ⬜ |
+| P1-6 | kusdb Secrets Manager 권한 부착 | ⬜ |
+| 🚩 G1 | 선언 | ⬜ |
+
+---
+
+### 20.2 생성된 리소스 — G1 공유 항목
+
+```
+EKS 클러스터명     : hybrid-toy-eks
+kubeconfig         : aws eks update-kubeconfig --region ap-northeast-2 --name hybrid-toy-eks
+클러스터 엔드포인트 : https://73DC9589D0580B53CFB4FDB4C59B297A.gr7.ap-northeast-2.eks.amazonaws.com
+네임스페이스        : app  (P1-5에서 생성)
+
+ECR
+  patient-web : 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/patient-web
+  bff         : 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/bff
+  was         : 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/was
+
+RDS 엔드포인트     : hybrid-toy-rds.cfmws2co6i6j.ap-northeast-2.rds.amazonaws.com : 3306
+RDS 마스터 시크릿   : arn:aws:secretsmanager:ap-northeast-2:597106152264:secret:rds!db-83b090eb-78f5-4c86-8c9d-5f242c6b4cc9-vPq6SX
+
+ACM 인증서         : arn:aws:acm:ap-northeast-2:597106152264:certificate/6eecdf13-ea45-4847-964b-ae9642308f87
+LBC IRSA 역할      : arn:aws:iam::597106152264:role/hybrid-toy-eks-lbc-irsa
+```
+
+**주요 리소스 ID**
+
+| 리소스 | ID |
+|---|---|
+| VPC | `vpc-0eaa396d5e9eae015` |
+| Public Subnet | `subnet-0f55d9efac8f2b6b0`, `subnet-01ab1a42f616a2733` |
+| Private Subnet | `subnet-03e4de8d6064f96a1`, `subnet-008571088a2c53a6f` |
+| Database Subnet | `subnet-056a7517df20bb615`, `subnet-030857d1a7b2d75c9` |
+| Database RT | `rtb-086678314e73d8b93` |
+| NAT Gateway | `nat-07f604e7d0bbba903` |
+
+---
+
+### 20.3 생성 소요 시간
+
+| 리소스 | 소요 |
+|---|---|
+| ECR ×3 + lifecycle policy ×3 | 1초 |
+| VPC / 서브넷 / RT / IGW | 1~2초 |
+| NAT Gateway | 1분 44초 |
+| KMS Key | 21초 |
+| EKS 클러스터 | 7분 43초 |
+| 애드온 `before_compute` (vpc-cni, pod-identity-agent) | 44초 |
+| **노드그룹** | **1분 48초** |
+| 애드온 (coredns, kube-proxy) | 15초 / 25초 |
+| RDS 인스턴스 | 6분 20초 |
+
+> **노드그룹 1분 48초** — §19.10-① 수정의 실물 검증이다. 이전 apply에서는 CNI 부재로 33분 대기 후 `NodeCreationFailure`로 실패했다.
+
+---
+
+### 20.4 apply 중 발생한 문제 — SG description ASCII 제약
+
+첫 apply가 RDS Security Group 단계에서 중단됐다. EKS는 전부 성공한 상태였다.
+
+```
+Error: "ingress.0.description" doesn't comply with restrictions
+("^[0-9A-Za-z_ .:/()#,@\[\]+=&;{}!$*-]*$"): "EKS 노드/파드에서만 접근 허용"
+```
+
+**원인:** AWS Security Group의 `description` 필드는 **ASCII만 허용**한다. 한글이 들어가면 API가 거부한다.
+
+**필드마다 제약이 다르다**
+
+| 필드 | 한글 |
+|---|---|
+| `aws_security_group` 의 `description` / `ingress.description` / `egress.description` | ❌ **불가** |
+| `tags` 값 | ✅ 가능 |
+| ECR lifecycle policy 의 `description` | ✅ 가능 |
+| Terraform `variable` / `output` 의 `description` | ✅ 가능 (AWS에 전송되지 않는 메타데이터) |
+
+**조치**
+
+```hcl
+ingress {
+  description = "MySQL from EKS nodes only"   # 영문으로 교체
+  ...
+}
+```
+
+**점검 명령**
+
+```powershell
+Select-String -Path ..\..\modules\*\*.tf -Pattern "description" | Select-String "[가-힣]"
+```
+
+---
+
+### 20.5 파라미터 그룹 상시 drift — 무해
+
+재apply 시 `1 to change`가 잡혔다.
+
+```
+~ module.rds.aws_db_parameter_group.this
+    - parameter { name = "require_secure_transport", value = "1"  }
+    + parameter { name = "require_secure_transport", value = "ON" }
+```
+
+**AWS가 `ON`을 저장하며 `1`로 정규화한다.** MySQL 계열 boolean 파라미터의 표준 동작이다. 코드는 `ON`, AWS는 `1` — 값이 달라 매 `plan`마다 diff가 재출현한다.
+
+| 항목 | 판단 |
+|---|---|
+| 기능 영향 | 없음. `1` == `ON`. TLS 강제는 정상 적용 |
+| 부작용 | plan 노이즈 1건 상시 발생 |
+| 대응 | `value = "1"` 로 변경하면 drift 소멸. **선택 사항** |
+
+> 무해한 diff가 상시로 뜨면 나중에 진짜 diff를 놓친다. 정리해두는 편이 낫다.
+
+---
+
+### 20.6 클라이언트 도구 설치
+
+`aws eks update-kubeconfig`는 AWS CLI 기능이라 성공하지만, `kubectl`은 별도 설치가 필요하다.
+
+```powershell
+winget install -e --id Kubernetes.kubectl
+winget install -e --id Helm.Helm
+# 설치 후 PowerShell 새 창에서 확인
+kubectl version --client
+helm version
+```
+
+- kubectl은 클러스터와 **±1 마이너** 이내 (클러스터 1.35 → kubectl 1.34~1.36)
+- `helm`은 인프라 리드만 필요 (LB Controller 설치 전용)
+- **팀원 4명은 각자 AWS CLI + kubectl 설치 후 `kubectl get nodes` 성공**이 G1 조건
+
+---
+
+### 20.7 남은 작업
+
+#### P1-4 — ACM 인증서 검증
+
+```powershell
+aws acm describe-certificate `
+  --certificate-arn arn:aws:acm:ap-northeast-2:597106152264:certificate/6eecdf13-ea45-4847-964b-ae9642308f87 `
+  --query "Certificate.DomainValidationOptions" --output json
+```
+
+출력의 `ResourceRecord`의 `Name` / `Value`를 Cloudflare DNS에 CNAME 등록.
+
+> 🚨 **⚪ 회색 구름(DNS only) 필수.** 주황 구름이면 Cloudflare가 응답을 가로채 검증이 영원히 Pending에 머문다 (§15.1, §19.9).
+
+상태 확인 — `"ISSUED"` 가 나와야 한다.
+
+```powershell
+aws acm describe-certificate --certificate-arn <ARN> --query "Certificate.Status"
+```
+
+#### P1-5 — kubeconfig 검증 + LB Controller 설치
+
+ACM 검증 대기와 병렬 진행 가능하다.
+
+```powershell
+kubectl get nodes                    # Ready 2개
+kubectl -n kube-system get pods      # aws-node / coredns / kube-proxy / pod-identity-agent 각 2개
+kubectl create namespace app
+
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller `
+  -n kube-system `
+  --set clusterName=hybrid-toy-eks `
+  --set serviceAccount.create=true `
+  --set serviceAccount.name=aws-load-balancer-controller `
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::597106152264:role/hybrid-toy-eks-lbc-irsa
+
+kubectl -n kube-system rollout status deploy/aws-load-balancer-controller
+```
+
+**검증 항목**
+
+| 확인 | 기대 |
+|---|---|
+| `kubectl get nodes` | Ready 2개 (t3.medium) |
+| `aws-node` Pod | 2개 Running — §19.10-① 최종 검증 |
+| DB 서브넷 격리 | `rtb-086678314e73d8b93` 에 로컬 CIDR 경로만. NAT 없음 — §19.10-② 최종 검증 |
+
+```powershell
+aws ec2 describe-route-tables --filters "Name=route-table-id,Values=rtb-086678314e73d8b93" `
+  --query "RouteTables[].Routes[].[DestinationCidrBlock,NatGatewayId]" --output table
+```
+
+#### P1-6 — kusdb Secrets Manager 권한
+
+시크릿 ARN이 확정됐으므로 부착 가능하다. 정책명 `hybrid-toy-rds-master-secret-read`.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:ap-northeast-2:597106152264:secret:rds!db-83b090eb-78f5-4c86-8c9d-5f242c6b4cc9-vPq6SX"
+    }
+  ]
+}
+```
+
+#### 🚩 G1 선언 조건
+
+- [ ] ACM 인증서 **Issued**
+- [ ] LB Controller Pod Running
+- [ ] `app` 네임스페이스 생성
+- [ ] §20.2 항목 전 팀 공유
+- [ ] 팀원 4명 전원 `kubectl get nodes` 성공
+
+#### P2 — 3팀 병렬 (1~2일)
+
+| 주체 | 작업 |
+|---|---|
+| EKS팀 | 이미지 빌드·푸시 → **WAS → BFF → Web 순** 배포 → Ingress 작성 |
+| DB팀 | 임시 파드로 RDS 접속 → `commondb` DDL → `app_was` 계정 발급 |
+| 인프라 리드 | Cloudflare SSL/TLS **Full (strict)** / `www` CNAME 등록(🟠 주황) / WAF·Rate Limit·Bot Fight |
+| — | 🚩 **G2** — 브라우저 → `www` → patient-web → BFF → WAS → DB |
+
+#### P3 — 내부 흐름 (약 반나절)
+
+| 주체 | 작업 |
+|---|---|
+| 인프라 리드 | Tunnel 생성 → Public Hostname `staff-api...` → Access App → **Policy Action = `Service Auth`** → Service Token 발급 |
+| BFF 담당 | cloudflared Deployment 배포 (replicas 2) |
+| OKD팀 | Service Token Secret 생성 → Web Pod에서 호출 |
+| — | 🚩 **G3** — OKD Pod → `200 application/json` 수신 |
+
+#### 종료 시
+
+- [ ] `terraform destroy` — 미실행 시 EKS $0.10/h + NAT + RDS가 계속 과금된다
+
+---
+
+### 20.8 P1에서 배운 것
+
+| 함정 | 증상 | 대응 |
+|---|---|---|
+| SG description에 한글 | `doesn't comply with restrictions` — apply 중단 | SG description은 **ASCII만**. 태그·변수 description과 제약이 다르다 |
+| AWS 측 값 정규화 | `ON` → `1` 상시 drift | 상시 diff는 진짜 diff를 가린다. AWS 반환값에 맞추거나 인지하고 넘긴다 |
+| PowerShell `-target` 파싱 | `Prefix "module." must be followed by a module name` | `"-target=module.ecr"` 로 인용 |
+| `kubectl` 미설치 | `update-kubeconfig`는 성공하는데 `kubectl` 없음 | 별개 도구다. 팀원 전원 설치 필요 |
+| state 비었는데 AWS 확인 생략 | orphan 리소스 과금 + `AlreadyExists` | apply 전 `state list` **와** AWS 실물(EKS·VPC·NAT·EIP) 양쪽 확인 |
