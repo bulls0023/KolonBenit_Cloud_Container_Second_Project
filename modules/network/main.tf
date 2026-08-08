@@ -18,6 +18,7 @@ module "vpc" {
   enable_dns_support   = true
 
   # DB 서브넷 그룹은 modules/rds 에서 직접 생성 -> 여기서는 중복 생성 방지
+  create_database_subnet_route_table = true
   create_database_subnet_group = false
   # DB 서브넷은 NAT 경로 없음(모듈 기본값) -> 아웃바운드 인터넷 차단 상태 유지
 

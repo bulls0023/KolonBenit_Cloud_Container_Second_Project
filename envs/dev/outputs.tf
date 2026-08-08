@@ -26,3 +26,8 @@ output "kubeconfig_update_cmd" {
 output "rds_master_secret_arn" {
   value = module.rds.db_instance_master_user_secret_arn
 }
+
+output "lbc_irsa_role_arn" {
+  description = "LB Controller Helm 설치 시 사용"
+  value       = module.eks.lbc_irsa_role_arn
+}

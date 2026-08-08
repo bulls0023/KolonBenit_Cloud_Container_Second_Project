@@ -1,4 +1,4 @@
-﻿.terraform/
+.terraform/
 *.tfstate
 *.tfstate.*
 crash.log
@@ -10,3 +10,10 @@ override.tf.json
 *_override.tf
 .terraformrc
 terraform.rc
+tfplan
+*.tfplan
+*.tfvars
+!*.tfvars.example
+*.pem
+*.key
+.env

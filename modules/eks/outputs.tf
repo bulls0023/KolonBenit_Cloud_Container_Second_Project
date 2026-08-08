@@ -21,3 +21,8 @@ output "node_security_group_id" {
 output "cluster_security_group_id" {
   value = module.eks.cluster_security_group_id
 }
+
+output "lbc_irsa_role_arn" {
+  description = "AWS Load Balancer Controller IRSA 역할 ARN"
+  value       = module.lbc_irsa.iam_role_arn
+}

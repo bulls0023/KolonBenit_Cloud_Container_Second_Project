@@ -23,8 +23,8 @@ module "eks" {
   common_tags        = local.common_tags
 
   developer_iam_arns = {
-    web = "arn:aws:iam::597106152264:user/kusbff"
-    bff = "arn:aws:iam::597106152264:user/kusweb"
+    web = "arn:aws:iam::597106152264:user/kusweb"
+    bff = "arn:aws:iam::597106152264:user/kusbff"
     was = "arn:aws:iam::597106152264:user/kuswas"
     db  = "arn:aws:iam::597106152264:user/kusdb"
   }
