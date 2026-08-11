@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: patient-web
-        image: 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/patient-web:dev-main
+        image: 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/patient-web:1fc8194
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
