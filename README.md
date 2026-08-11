@@ -768,7 +768,7 @@ WAS는 DB 원본값도, 한글 라벨도 반환하지 않는다.
 
 **`icd_code` — 필수 컬럼**
 
-`code` VARCHAR(6) PK / `name_kr` VARCHAR(200) NOT NULL / `name_en` VARCHAR(255) NULL / `gender_restriction` CHAR(1) NULL / `age_min` TINYINT NULL / `age_max` TINYINT NULL / `infectious_class` VARCHAR(8) NULL / `oriental_medicine` VARCHAR(16) NULL
+`code` VARCHAR(6) PK / `name_kr` VARCHAR(200) NOT NULL / `name_en` VARCHAR(255) NULL / `gender_restriction` CHAR(1) NULL / `age_min` **INT** NULL / `age_max` **INT** NULL / `infectious_class` VARCHAR(8) NULL / `oriental_medicine` VARCHAR(16) NULL
 
 **`icd_code_synonym` — 필수 컬럼**
 
@@ -794,7 +794,21 @@ INDEX idx_icd_code_name  ON icd_code (name_kr(32))
 
 **`prescription_item` — 필수 컬럼**
 
-`item_id` BIGINT PK / `prescription_id` BIGINT NOT NULL FK / `drug_name` VARCHAR(200) NOT NULL / `dosage` VARCHAR(50) NOT NULL / `frequency` VARCHAR(50) NOT NULL / `duration_days` SMALLINT NOT NULL
+`item_id` BIGINT PK / `prescription_id` BIGINT NOT NULL FK / `drug_name` VARCHAR(200) NOT NULL / `dosage` VARCHAR(50) NOT NULL / `frequency` VARCHAR(50) NOT NULL / `duration_days` **INT** NOT NULL / `line_no` **INT** NOT NULL
+
+**✅ v3.1 — 숫자 컬럼은 `INT` 로 통일한다. `TINYINT` / `SMALLINT` 를 쓰지 않는다.**
+
+Hibernate 는 Java 타입에서 JDBC 타입 코드를 정하고 `ddl-auto: validate` 가 이를 실제 컬럼과 대조한다.
+
+| Java | JDBC | MySQL |
+|---|---|---|
+| `int` / `Integer` | INTEGER | `INT` |
+| `short` / `Short` | SMALLINT | `SMALLINT` |
+| `byte` / `Byte` | TINYINT | `TINYINT` |
+
+카운터·일수·연령을 `TINYINT`/`SMALLINT` 로 두면 엔티티를 `byte`/`short` 로 낮춰야 하고, `UNSIGNED`(0~255)가 Java `byte`(-128~127)를 넘어 **조용한 오버플로**가 생긴다. 저장 공간 차이는 이 규모에서 무의미하다.
+
+적용 컬럼: `patient_user.failed_login_count` · `staff_user.failed_login_count` · `icd_code.age_min` · `icd_code.age_max` · `prescription_item.duration_days` · `prescription_item.line_no`
 
 **규칙**
 
@@ -877,13 +891,43 @@ INDEX idx_icd_code_name  ON icd_code (name_kr(32))
 | `양한방구분` | `oriental_medicine` | 그대로 (한방 전용 151종) |
 | `완전코드구분` / `주상병사용구분` | — | **적재하지 않는다.** 필터에만 사용 |
 
-**SQL 생성 규칙 (`convert-icd.ps1`)**
+**SQL 생성 규칙 (`convert-icd.ps1`)** — ⚠️ 초안에서 2건 교정됨
 
 - 출력 인코딩 **UTF-8 (BOM 없음)**. BOM이 붙으면 MySQL 클라이언트가 첫 구문을 깨뜨린다.
 - `INSERT ... VALUES` **1,000행 배치**. 단건 INSERT 37,543회는 수 분이 걸린다.
 - 파일 선두에 `SET NAMES utf8mb4;` / `SET autocommit=0;`, 말미에 `COMMIT;`
-- 재실행 가능하도록 `INSERT IGNORE` 가 아니라 **선행 `DELETE FROM`** 을 쓴다. 조용한 부분 실패를 만들지 않는다.
-- 작은따옴표는 `''` 로 이스케이프한다. 한글명·영문명에 실제로 포함되어 있다.
+- 작은따옴표는 `''` 로 이스케이프한다. 실측 5건 존재. 백슬래시는 0건이나 방어적으로 처리한다.
+
+**교정 1 — `DELETE FROM icd_code` 를 쓰지 않는다**
+
+초안은 재실행 안전성을 위해 선행 `DELETE` 를 지시했다. **차트가 생기는 순간 실패한다.**
+
+```
+DELETE FROM icd_code;
+→ ERROR 1451: Cannot delete or update a parent row:
+  a foreign key constraint fails (`chart`, CONSTRAINT `fk_chart_icd` ...)
+```
+
+`chart.icd_code` 가 `ON DELETE RESTRICT` 로 마스터를 참조하기 때문이다. 확정 방식:
+
+| 테이블 | 방식 | 이유 |
+|---|---|---|
+| `icd_code_synonym` | `TRUNCATE` 후 전량 재적재 | 참조하는 테이블이 없다. 자식 테이블은 TRUNCATE 가능 |
+| `icd_code` | **UPSERT** (`INSERT ... AS new ON DUPLICATE KEY UPDATE`) | 진료 기록을 보존하면서 명칭만 갱신 |
+
+- 구문은 **`AS new` 별칭 형식**을 쓴다. 구형 `VALUES(col)` 은 MySQL 8.0.20+ 에서 deprecated 경고를 낸다. **최소 요구 버전: MySQL 8.0.19**
+- 실측 확인: 차트가 `E1140` 을 참조 중인 상태에서 재적재 → 마스터 명칭은 갱신되고 `chart.icd_name_snapshot` 은 **발급 시점 값을 유지**한다. §6.8 스냅샷 설계가 의도대로 동작한다.
+
+**교정 2 — `ANALYZE TABLE` 을 반드시 실행한다**
+
+대량 적재 직후 InnoDB 의 행수 추정치는 실제와 크게 다르다. 실측값:
+
+| 시점 | `icd_code` 추정 | `icd_code_synonym` 추정 |
+|---|---|---|
+| 적재 직후 | **3** | **2** |
+| `ANALYZE TABLE` 후 | 14,433 | 37,883 (근사치. 정상) |
+
+추정치가 3행이면 옵티마이저가 인덱스를 버리고 풀스캔을 고른다. seed 파일 말미에 `ANALYZE TABLE icd_code, icd_code_synonym;` 을 포함한다.
 
 **검증 (게이트 D2 — §12)**
 
@@ -893,6 +937,16 @@ SELECT COUNT(*) FROM icd_code_synonym;   -- 37543
 SELECT code, name_kr FROM icd_code WHERE code = 'E1140';
 SELECT COUNT(*) FROM icd_code_synonym WHERE code = 'E1140';  -- 60
 ```
+
+**검색 성능 실측** (MySQL 8.0.46 / 37,543행 / `ANALYZE` 후 / 상한 50건)
+
+| 검색 패턴 | 실행 계획 | 스캔 행수 | 응답 |
+|---|---|---|---|
+| `code LIKE 'E11%'` (코드 prefix) | `range` — `idx_icd_syn_code` | 630 | **1.3ms** |
+| `name_kr LIKE '당뇨%'` (명칭 prefix) | `range` — `idx_icd_syn_name` | 255 | — |
+| `name_kr LIKE '%당뇨%'` (부분일치) | `ALL` — 풀스캔 | 39,675 | **6.6ms** |
+
+부분일치는 인덱스를 타지 않지만 **이 규모에서는 10ms 미만**이다. 이번 단계에서 FULLTEXT 는 불필요하다. 데이터가 수십만 건으로 늘거나 동시 사용자가 증가하면 그때 전환한다(§17.3).
 
 **갱신 정책** — KCD는 연 1~2회 개정된다. 개정 시 `data.json` 교체 → 스크립트 재실행 → `04_icd_seed.sql` 재커밋 → 재적재. **자동 동기화는 백로그(§17.3)다.** 기존 `chart.icd_name_snapshot` 은 갱신하지 않는다.
 
@@ -1531,6 +1585,20 @@ Select-String -Path ..\..\modules\*\*.tf -Pattern "description" | Select-String 
 | ✅ **`SELECT command denied to user 'app_was'`** | 신규 테이블에 GRANT 누락 (§12.3 명시 부여 방식) | `02_grants.sql` 에 해당 테이블 추가 후 재실행 |
 | ✅ **`app_was` 로 `Access denied` (비밀번호는 정확)** | `REQUIRE SSL` 계정에 비TLS 접속 | JDBC `sslMode=REQUIRED`. 로컬 compose 도 동일. `sslMode=DISABLED` 금지 |
 | ✅ **`ERROR 1147 ... no such grant`** | DB 단위 GRANT 를 테이블 단위로 REVOKE 시도 | MySQL 미지원. 테이블 단위 명시 부여로 전환 (§12.3) |
+| ✅ **`ERROR 1451` — ICD 재적재 실패** | `DELETE FROM icd_code` 를 차트 존재 상태에서 실행 | UPSERT 방식 사용 (§6.10). seed 재생성 |
+| ✅ **적재는 됐는데 검색이 느림** | `ANALYZE TABLE` 누락 → 통계가 3행으로 인식 | `ANALYZE TABLE icd_code, icd_code_synonym;` |
+| ✅ **`ConvertFrom-Json` 실패 (maxJsonLength)** | PowerShell 5.1 의 19MB JSON 파싱 한계 | `pwsh`(PS7)로 실행. 스크립트에 자동 폴백 내장 |
+| ✅ **WAS 기동/테스트 실패 — `LenientObjectToEnumConverterFactory` `IllegalArgumentException`** | `application.yaml` 의 값이 enum 으로 변환 실패. **Jackson 3 에서 `WRITE_DATES_AS_TIMESTAMPS` 가 `SerializationFeature` → `DateTimeFeature` 로 이동** | `spring.jackson.serialization.write-dates-as-timestamps` **삭제**. Jackson 3 기본값이 이미 ISO-8601 이라 불필요 |
+| ✅ **Gradle 테스트 로그 한글 깨짐** (`遺?몄뒪?몃옪`) | 데몬·테스트 JVM 의 `file.encoding` 이 CP949 | `gradle.properties` 에 `-Dfile.encoding=UTF-8`, `Test { defaultCharacterEncoding = "UTF-8" }`, PowerShell `[Console]::OutputEncoding = [Text.Encoding]::UTF8` |
+| ✅ **테스트 실패했는데 원인 메시지가 안 보임** | Gradle 기본 출력은 예외 **클래스명만** 표시 | `testLogging { exceptionFormat = FULL; showCauses = true }` 또는 `build/reports/tests/test/index.html` 확인 |
+| ✅ **WAS 기동 실패 — `Schema validation: wrong column type ... found [text], expecting [tinytext]`** | `@Lob` 만 붙이고 `length` 미지정. **MySQL 방언은 CLOB 의 실제 타입을 컬럼 길이로 고른다** (~255 tinytext / ~65535 text / ~16M mediumtext / 그 이상 longtext). 기본값 255 가 적용됨 | `@Column(length = 65535)` 로 DDL 의 `TEXT` 와 맞춘다. `ddl-auto: none` 은 우회일 뿐 |
+| ✅ **`wrong column type ... found [tinyint unsigned], expecting [integer]`** | `TINYINT`/`SMALLINT` 컬럼을 `int`/`Integer` 로 매핑 | DDL 을 `INT` 로 통일 (§6.8). **Hibernate 는 첫 불일치에서 멈추므로 전 컬럼을 한 번에 점검할 것** |
+| ✅ **`prepare.ps1` — `utf8NoBOM 을 유효한 열거자 이름과 일치시킬 수 없습니다`** | `-Encoding utf8NoBOM` 은 **PowerShell 7 전용**. 5.1 의 `-Encoding UTF8` 은 BOM 을 붙여 SQL 을 깨뜨린다 | `[System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding $false))` |
+| ✅ **`.ps1` 실행 시 한글이 깨짐 (`寃쎈줈`)** | **PS 5.1 은 BOM 없는 `.ps1` 을 CP949 로 파싱한다.** `[Console]::OutputEncoding` 으로는 안 잡힌다 | `.ps1` 파일을 **UTF-8 BOM** 으로 저장 |
+| ✅ **`.\gradlew` 인식 안 됨** | 새 머신에 래퍼 없음 | `gradle wrapper --gradle-version 9.5.1`. 이후 `gradle` 직접 호출 금지, **`.\gradlew` 만** 사용 |
+| ✅ **예약 목록에는 뜨는데 예약하면 `400 invalid_date`** | 슬롯 조회가 날짜 범위(그날 00:00~)로만 잘라 **지나간 시각까지 반환**. 예약 검증은 현재 시각 기준 | 조회 시작점을 `max(그날 00:00, now)` 로. **조회 필터와 생성 검증의 판정 기준을 반드시 일치시킨다** |
+| ✅ **필터가 만든 403 의 상태코드는 맞는데 본문이 빔** | 필터는 DispatcherServlet 밖이라 `getWriter()` 의 커밋 시점이 컨테이너에 좌우된다 | 바이트로 만들어 `setContentLength` → `getOutputStream()` → `flushBuffer()`. `reset()` 사용 시 `X-Trace-Id` 재설정 필수 |
+| ✅ **검증 스크립트 전 항목이 `status=-1`** | `docker compose up -d` 는 컨테이너 **시작** 시점에 반환. Spring Boot 기동에 15초 더 필요 | `up -d --wait` 사용. **전 항목 동일 실패는 연결 문제의 신호다** — 항목별로 다르게 깨져야 애플리케이션 결함이다 |
 
 ### 15.2 진단 명령
 
@@ -2111,6 +2179,10 @@ AWS가 `ON`을 `1`로 정규화하여 매 plan마다 diff가 재출현했다. �
 | 29 | **ICD 테이블 구조** | `icd_code` + `icd_code_synonym` **2테이블 분리** | §6.8 (코드 중복 6,785종) | **2026-08-10** |
 | 30 | **처방 발급 API** | `POST /api/bff/staff/charts` **단일 트랜잭션.** 신규 경로 없음 | §7.12 | **2026-08-10** |
 | 31 | **상병명 보관** | `chart.icd_name_snapshot` 발급 시점 복사. 소급 수정 금지 | §6.8 | **2026-08-10** |
+| 32 | **DB 숫자 컬럼** | `TINYINT`/`SMALLINT` 미사용. **`INT` 로 통일** | §6.8 (Hibernate JDBC 타입 정합) | **2026-08-11** |
+| 33 | **`chart.note` 매핑** | `@Lob` + **`length = 65535`** (MySQL `TEXT`) | §6.8 | **2026-08-11** |
+| 34 | **예약 가능 슬롯 기준** | `max(조회일 00:00, now)` — 조회와 생성의 판정 일치 | §6.6 | **2026-08-11** |
+| 35 | **로컬 통합 기동** | `docker compose up --build -d --wait` | 구축설명서 §6.2 | **2026-08-11** |
 
 **베이스 이미지 digest 기록란** — 최초 빌드 시 채우고 커밋한다.
 
