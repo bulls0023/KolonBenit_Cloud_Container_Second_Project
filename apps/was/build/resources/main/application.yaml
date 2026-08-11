@@ -1,0 +1,127 @@
+# =====================================================================
+# Hybrid Toy Project - WAS application.yaml
+# 계약: README v3.1 §6.1 / §6.7 / §6.8 / §13.2
+# =====================================================================
+
+spring:
+  application:
+    name: was
+
+  # -------------------------------------------------------------------
+  # DB - 자격증명은 환경변수로만 주입한다. 이 파일에 값을 적지 않는다.
+  #
+  #   sslMode=REQUIRED        README §21-24. useSSL/requireSSL 은 deprecated
+  #   serverTimezone=Asia/Seoul  전 컬럼 DATETIME 이므로 필수
+  #   app_was 계정은 REQUIRE SSL 이다. sslMode=DISABLED 로 두면
+  #   비밀번호가 맞아도 Access denied 가 난다 (README §15).
+  # -------------------------------------------------------------------
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME:commondb}?sslMode=REQUIRED&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: was-pool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000
+      validation-timeout: 2000
+      # /readyz 가 3초 안에 판정을 끝내야 하므로 커넥션 타임아웃을 짧게 둔다.
+
+  jpa:
+    open-in-view: false        # 컨트롤러까지 세션을 끌고 가지 않는다
+    hibernate:
+      # validate: 엔티티 매핑과 실제 스키마가 어긋나면 기동 실패.
+      #           DB팀의 스키마 변경을 조기에 잡는다.
+      # ⚠️ 기동이 매핑 검증으로 막히면 임시로 none 으로 낮추고 원인을 보고한다.
+      #    절대 update / create 로 올리지 않는다 - 스키마 소유권은 DB팀이다.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+        format_sql: false
+    show-sql: false            # 운영 로그에 SQL 을 흘리지 않는다
+
+  # -------------------------------------------------------------------
+  # Jackson - snake_case 는 전역 설정 하나로 끝낸다.
+  #   개별 @JsonProperty 반복 사용 금지 (README §6.7)
+  # -------------------------------------------------------------------
+  jackson:
+    # 계약의 핵심. camelCase 필드 -> snake_case JSON (README §6.7).
+    # 이 속성은 String 바인딩이므로 Jackson 3 에서도 그대로 유효하다.
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+    #
+    # ⚠️ serialization.write-dates-as-timestamps 를 넣지 않는다.
+    #    Jackson 3 에서 WRITE_DATES_AS_TIMESTAMPS 는 SerializationFeature 에서
+    #    DateTimeFeature 로 이동했다. SerializationFeature 로 바인딩하면
+    #    LenientObjectToEnumConverterFactory 가 IllegalArgumentException 을 던져
+    #    컨텍스트 기동 자체가 실패한다.
+    #    게다가 Jackson 3 는 기본값이 이미 false 다 - 날짜를 ISO-8601 문자열로 쓴다.
+    #    즉 이 줄은 깨지는 데다 불필요하다. 넣지 않는 것이 정답이다.
+    #
+    # ⚠️ deserialization.fail-on-unknown-properties 도 제거했다.
+    #    Spring Boot 가 이미 false 로 설정한다. 중복 선언은 위험만 늘린다.
+    #
+    # ⚠️ use-jackson2-defaults: true 를 쓰지 않는다.
+    #    Jackson 2 동작으로 되돌리는 마이그레이션 보조 스위치다.
+    #    날짜 ISO-8601 출력은 우리가 원하는 동작이므로 되돌릴 이유가 없다.
+
+  threads:
+    virtual:
+      enabled: true            # Java 25 가상 스레드. I/O 대기 위주 워크로드
+
+server:
+  port: 8080
+  shutdown: graceful
+  error:
+    whitelabel:
+      enabled: false           # 기본 오류 페이지 대신 GlobalExceptionHandler 사용
+
+# ---------------------------------------------------------------------
+# 로깅
+#   ⚠️ 인증 API 의 body 를 통째로 로깅하지 않는다 (README §6.1-11).
+#      아래 두 줄을 DEBUG 로 올리면 비밀번호가 로그에 남는다. 금지.
+# ---------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    org.kuspital.was: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{trace_id:-}] %logger{36} - %msg%n"
+
+# ---------------------------------------------------------------------
+# 애플리케이션 고유 설정
+# ---------------------------------------------------------------------
+app:
+  auth:
+    max-failed-login: 5        # README §6.5
+    lock-minutes: 30
+  icd:
+    min-query-length: 2        # 1자 검색은 400 validation_error
+    max-results: 50            # 응답 상한 고정
+  appointment:
+    visit-no-prefix: V         # V20260810-0007
+
+---
+# =====================================================================
+# 로컬 프로파일 - docker compose 통합 검증용
+#   ⚠️ 로컬 MySQL 컨테이너에도 TLS 가 있으므로 sslMode=REQUIRED 를 유지한다.
+#      DISABLED 로 낮추면 로컬에서만 통과하고 EKS 에서 실패한다.
+# =====================================================================
+spring:
+  config:
+    activate:
+      on-profile: local
+  jpa:
+    show-sql: true
+logging:
+  level:
+    org.kuspital.was: DEBUG

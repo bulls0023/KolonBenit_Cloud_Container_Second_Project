@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="JPA 부트스트랩 및 JPQL 검증" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-08-11T06:10:27.117Z" hostname="LAPTOP-LNPIUE7E" time="12.855">
+  <properties/>
+  <testcase name="모든 @Query 가 파싱되고 실행된다" classname="org.kuspital.was.JpaBootstrapTest" time="1.416"/>
+  <testcase name="컨텍스트가 기동되고 리포지토리가 전부 주입된다" classname="org.kuspital.was.JpaBootstrapTest" time="0.01"/>
+  <system-out><![CDATA[15:10:27.525 [Test worker] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [org.kuspital.was.JpaBootstrapTest]: JpaBootstrapTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+15:10:27.809 [Test worker] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration org.kuspital.was.WasApplication for test class org.kuspital.was.JpaBootstrapTest
+15:10:28.055 [Test worker] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [org.kuspital.was.JpaBootstrapTest]: JpaBootstrapTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+15:10:28.058 [Test worker] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration org.kuspital.was.WasApplication for test class org.kuspital.was.JpaBootstrapTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.0)
+
+2026-08-11 15:10:28.953 INFO  [] org.kuspital.was.JpaBootstrapTest - Starting JpaBootstrapTest using Java 25.0.4 with PID 13356 (started by hongj in C:\Users\hongj\Desktop\lastdance-main\apps\was)
+2026-08-11 15:10:28.956 INFO  [] org.kuspital.was.JpaBootstrapTest - The following 1 profile is active: "test"
+2026-08-11 15:10:30.520 INFO  [] o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-08-11 15:10:30.682 INFO  [] o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 138 ms. Found 8 JPA repository interfaces.
+2026-08-11 15:10:31.500 INFO  [] org.hibernate.orm.jpa - HHH008540: Processing PersistenceUnitInfo [name: default]
+2026-08-11 15:10:31.656 INFO  [] org.hibernate.orm.core - HHH000001: Hibernate ORM core version 7.4.1.Final
+2026-08-11 15:10:32.753 INFO  [] o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-08-11 15:10:32.841 INFO  [] com.zaxxer.hikari.HikariDataSource - was-pool - Starting...
+2026-08-11 15:10:33.194 INFO  [] com.zaxxer.hikari.pool.HikariPool - was-pool - Added connection conn0: url=jdbc:h2:mem:wastest user=SA
+2026-08-11 15:10:33.198 INFO  [] com.zaxxer.hikari.HikariDataSource - was-pool - Start completed.
+2026-08-11 15:10:33.330 INFO  [] o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [jdbc:h2:mem:wastest]
+	Database driver: H2 JDBC Driver
+	Database dialect: H2Dialect
+	Database version: 2.4.240
+	Default catalog/schema: WASTEST/PUBLIC
+	Autocommit mode: undefined/unknown
+	Isolation level: READ_COMMITTED [default READ_COMMITTED]
+	JDBC fetch size: 100
+	Pool: DataSourceConnectionProvider
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-08-11 15:10:35.369 INFO  [] org.hibernate.orm.core - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-08-11 15:10:35.378 INFO  [] org.hibernate.orm.jdbc.batch - HHH100501: Automatic JDBC statement batching enabled (maximum batch size 50)
+2026-08-11 15:10:35.503 INFO  [] o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-08-11 15:10:35.682 INFO  [] o.s.d.j.r.q.QueryEnhancerFactories - Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-08-11 15:10:38.514 INFO  [] org.kuspital.was.JpaBootstrapTest - Started JpaBootstrapTest in 10.248 seconds (process running for 13.812)
+]]></system-out>
+  <system-err><![CDATA[Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+WARNING: A Java agent has been loaded dynamically (C:\Users\hongj\.gradle\caches\modules-2\files-2.1\net.bytebuddy\byte-buddy-agent\1.18.10\9426d28828bdcdf42666bb7a68c468279ea78f59\byte-buddy-agent-1.18.10.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+]]></system-err>
+</testsuite>

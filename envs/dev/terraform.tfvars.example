@@ -1,0 +1,3 @@
+aws_region      = "ap-northeast-2"
+project_name    = "hybrid-toy"
+alb_domain_name = "app.example.com"

@@ -1,0 +1,26 @@
+# =====================================================================
+# 부트스트랩 검증 전용 프로파일
+#
+# 목적: EntityManagerFactory 생성 시점에 @Query JPQL 을 전부 파싱시킨다.
+#       Hibernate 는 애플리케이션 기동 시 리포지토리 쿼리를 파싱하므로,
+#       ./gradlew build 만으로는 JPQL 오류가 드러나지 않는다.
+#
+# ⚠️ H2 는 실제 스키마를 검증하지 않는다. 엔티티에서 DDL 을 생성한다.
+#    엔티티 <-> 01_schema.sql 정합은 별도로 확인한다 (구축설명서 §6.2).
+# =====================================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:wastest;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul
+logging:
+  level:
+    org.hibernate.SQL: WARN
