@@ -67,16 +67,14 @@ public class JwtIssuer {
     // -----------------------------------------------------------------
 
     public String issuePatient(Long patientId) {
-        return issue(patientId, ActorType.PATIENT, Role.PATIENT,
-                Duration.ofMinutes(props.patientTtlMinutes()));
+        return issue(patientId, ActorType.PATIENT, Role.PATIENT, props.patientTtl());
     }
 
     public String issueStaff(Long staffId, Role role) {
         if (role == null || role.actorType() != ActorType.STAFF) {
             throw new IllegalArgumentException("직원 역할이 아니다: " + role);
         }
-        return issue(staffId, ActorType.STAFF, role,
-                Duration.ofHours(props.staffTtlHours()));
+        return issue(staffId, ActorType.STAFF, role, props.staffTtl());
     }
 
     private String issue(Long subject, ActorType actorType, Role role, Duration ttl) {

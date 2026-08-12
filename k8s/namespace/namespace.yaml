@@ -1,0 +1,78 @@
+# =====================================================================
+# app 네임스페이스
+# 계약: README v3.1 §10 / §11.0
+#
+# ⚠️ kubectl create namespace app 을 쓰지 않는다.
+#    명령형 생성은 PSA 라벨·LimitRange·ResourceQuota 가 빠진 채 만들어지고,
+#    나중에 붙여도 이미 뜬 파드에는 적용되지 않는다.
+#
+#    적용: kubectl apply --server-side -f k8s/namespace/
+# =====================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app
+  labels:
+    # Pod Security Admission - restricted 프로파일.
+    # 컨테이너가 runAsNonRoot / allowPrivilegeEscalation=false /
+    # capabilities drop ALL / seccompProfile 을 만족해야 생성된다.
+    # Dockerfile 의 USER 10001 과 아래 Deployment 의 securityContext 가 대응한다.
+    #
+    # ⚠️ 이 라벨을 붙인 뒤에는 조건을 어긴 파드가 "생성 자체를 거부"당한다.
+    #    CrashLoop 가 아니라 파드가 아예 안 뜨므로 증상이 다르다.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+# ---------------------------------------------------------------------
+# LimitRange - 리소스 미지정 파드에 기본값을 강제한다
+#
+# ⚠️ WAS/BFF 의 JVM 은 -XX:MaxRAMPercentage=75.0 으로 뜬다 (README §15).
+#    memory limit 512Mi 기준 힙 상한 약 384Mi. 나머지가 메타스페이스·스레드
+#    스택·네이티브 버퍼 몫이다. limit 을 더 낮추면 OOMKill 이 난다.
+# ---------------------------------------------------------------------
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: app-limits
+  namespace: app
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+      max:
+        cpu: "1"
+        memory: "1Gi"
+      min:
+        cpu: "10m"
+        memory: "64Mi"
+
+---
+# ---------------------------------------------------------------------
+# ResourceQuota - 네임스페이스 총량 상한
+#
+# ⚠️ Cluster Autoscaler 미설치 상태다 (README §17).
+#    총량을 넘으면 파드가 Pending 에서 멈춘다. 노드가 말라 죽는 것보다 낫다.
+#
+# ⚠️ Quota 가 걸린 네임스페이스에서는 모든 컨테이너가 requests/limits 를
+#    가져야 한다. LimitRange 의 default 가 그것을 채워준다. 둘은 한 쌍이다.
+# ---------------------------------------------------------------------
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: app-quota
+  namespace: app
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "4Gi"
+    limits.cpu: "4"
+    limits.memory: "8Gi"
+    pods: "20"

@@ -48,10 +48,13 @@ app:
     #    기본값을 두지 않는다. 미주입 시 기동을 실패시킨다 - 개발용 약한 키가
     #    운영에 섞여 들어가는 것을 막는 유일한 방법이다.
     signing-key: ${JWT_SIGNING_KEY}
-    issuer: hybrid-toy-bff
-    audience: hybrid-toy
-    patient-ttl-minutes: 30
-    staff-ttl-hours: 8
+    # ⚠️ 아래 4개는 ConfigMap 으로 주입한다 (README §6.2).
+    #    기본값은 로컬 검증용이며, 계약값과 동일해야 한다.
+    #    audience 는 hybrid-toy 가 아니라 hybrid-toy-api 다.
+    issuer: ${JWT_ISSUER:hybrid-toy-bff}
+    audience: ${JWT_AUDIENCE:hybrid-toy-api}
+    patient-ttl: ${PATIENT_JWT_TTL:30m}
+    staff-ttl: ${STAFF_JWT_TTL:8h}
 
   cookie:
     # 로컬 http 검증에서는 Secure 쿠키가 저장되지 않는다.

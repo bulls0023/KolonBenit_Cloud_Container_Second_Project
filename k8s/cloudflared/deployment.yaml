@@ -1,0 +1,89 @@
+# =====================================================================
+# cloudflared - 내부 직원 흐름의 유일한 진입점
+# 계약: README v3.1 §7.10 / §11.3
+#
+# ⚠️ 아웃바운드 연결만 한다. Service·Ingress·인바운드 SG 규칙이 전부 불필요하다.
+# ⚠️ Access JWT 검증은 대시보드의 Protect with Access 설정으로 cloudflared 가
+#    수행한다. 애플리케이션 코드가 Cf-Access-Jwt-Assertion 헤더를 보지 않는다.
+#    헤더 존재 여부만 확인하는 것은 보안이 아니다 (위조 가능).
+#
+# ⚠️ image digest 는 자리표시자다. :latest 금지 (§16-4).
+#      docker pull cloudflare/cloudflared:latest
+#      docker inspect --format='{{index .RepoDigests 0}}' cloudflare/cloudflared:latest
+#    조회한 값을 README §21 digest 표에 기록한 뒤 여기 반영한다.
+# =====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: app
+  labels:
+    app: cloudflared
+spec:
+  # 터널 이중화. 1개면 재시작 중 내부 흐름이 단절된다.
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: cloudflared
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cloudflared
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared@sha256:__CLOUDFLARED_DIGEST__
+          # ⚠️ --metrics 를 명시해야 /ready 가 고정 포트로 열린다.
+          #    생략하면 cloudflared 가 임의 포트에 바인딩해 아래 probe 가
+          #    항상 실패하고 파드가 무한 재시작한다.
+          args:
+            - "tunnel"
+            - "--no-autoupdate"
+            - "--metrics"
+            - "0.0.0.0:2000"
+            - "run"
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-secret
+                  key: TUNNEL_TOKEN
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            periodSeconds: 10
+            failureThreshold: 3
+          ports:
+            - name: metrics
+              containerPort: 2000

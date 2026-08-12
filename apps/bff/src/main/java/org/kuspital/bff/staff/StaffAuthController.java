@@ -67,7 +67,7 @@ public class StaffAuthController {
         return new StaffDtos.LoginResponse(
                 token,
                 "Bearer",
-                jwtProps.staffTtlHours() * 3600L,
+                jwtProps.staffTtl().toSeconds(),
                 actor.actorId(),
                 role.name(),
                 actor.name(),

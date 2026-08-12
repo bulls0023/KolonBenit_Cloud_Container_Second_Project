@@ -36,8 +36,11 @@ class JwtContractTest {
     @DisplayName("컨텍스트가 기동되고 설정이 바인딩된다")
     void contextLoads() {
         assertNotNull(securityFilterChain);
-        assertEquals(30, jwtProps.patientTtlMinutes());
-        assertEquals(8, jwtProps.staffTtlHours());
+        assertEquals(30, jwtProps.patientTtl().toMinutes());
+        assertEquals(8, jwtProps.staffTtl().toHours());
+        // 계약값이다. hybrid-toy 가 아니다 (README §6.2)
+        assertEquals("hybrid-toy-bff", jwtProps.issuer());
+        assertEquals("hybrid-toy-api", jwtProps.audience());
         assertEquals("PATIENT_TOKEN", cookieProps.patientTokenName());
         assertEquals("/api/bff/patient", cookieProps.path());
         assertEquals(2000, wasProps.connectTimeoutMs());

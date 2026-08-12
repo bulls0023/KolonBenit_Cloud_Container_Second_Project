@@ -1,0 +1,52 @@
+# =====================================================================
+# 외부 ALB Ingress
+# 계약: README v3.1 §6.9 (2-path 확정본)
+#
+# 🚨 경로 순서가 절대적이다.
+#    /api/bff/patient 가 먼저, / 가 마지막.
+#    반대로 두면 Prefix 매칭이 / 에서 전부 흡수되어
+#    환자 API 호출이 물리적으로 불가능해진다 (README §15).
+#
+# 🚨 /api/bff/staff 규칙을 추가하지 않는다.
+#    직원 API 의 외부 노출은 설계 위반이다. 직원 경로는
+#    Cloudflare Tunnel 로만 도달한다 (§7.10).
+#
+# ⚠️ certificate-arn 은 자리표시자다. deploy.ps1 이 치환한다.
+#    렌더링된 마크다운에서 복사하면 값이 조용히 깨진다 (README §15).
+#    반드시 terraform output -raw 로 받은 값을 쓴다.
+# =====================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: patient-web
+  namespace: app
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: __ACM_ARN__
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/success-codes: '200'
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          # 환자 API — 반드시 먼저 선언
+          - path: /api/bff/patient
+            pathType: Prefix
+            backend:
+              service:
+                name: bff-svc
+                port:
+                  number: 8080
+
+          # 기본 경로 — 반드시 마지막
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: patient-web-svc
+                port:
+                  number: 8080

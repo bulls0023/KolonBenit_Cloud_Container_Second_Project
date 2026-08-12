@@ -1,7 +1,10 @@
 package org.kuspital.bff.config;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -26,8 +29,13 @@ public final class AppProperties {
             @NotBlank String signingKey,
             @NotBlank String issuer,
             @NotBlank String audience,
-            @Positive int patientTtlMinutes,
-            @Positive int staffTtlHours) {
+            /**
+             * TTL 은 Duration 이다. 계약값이 "30m" / "8h" 문자열이므로
+             * 분·시간 단위 int 로 받으면 ConfigMap 값을 그대로 쓸 수 없다 (§6.2).
+             * Spring Boot 가 "30m" -> Duration 변환을 처리한다.
+             */
+            @NotNull Duration patientTtl,
+            @NotNull Duration staffTtl) {
     }
 
     @Validated

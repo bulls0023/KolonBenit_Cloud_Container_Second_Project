@@ -4,7 +4,6 @@ import org.kuspital.bff.config.AppProperties;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 
 /**
  * 환자 쿠키 생성. README v3.1 §6.5
@@ -41,7 +40,9 @@ public class CookieFactory {
                 .secure(props.secure())
                 .sameSite("Lax")
                 .path(props.path())
-                .maxAge(Duration.ofMinutes(jwtProps.patientTtlMinutes()))
+                // 쿠키 수명과 토큰 TTL 을 일치시킨다. 어긋나면 쿠키는 살아있는데
+                // 토큰이 만료돼 401 이 나거나, 그 반대가 된다.
+                .maxAge(jwtProps.patientTtl())
                 .build();
     }
 

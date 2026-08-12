@@ -1,0 +1,154 @@
+# =====================================================================
+# WAS - Deployment + Service
+# 계약: README v3.1 §6.1 / §6.2 / §11.0 / §11.3
+#
+# ⚠️ image 태그는 자리표시자다. deploy.ps1 이 git short SHA 로 치환한다.
+#    :latest 금지 (§11.0). ECR 은 immutable tag 다.
+# =====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: was
+  namespace: app
+  labels:
+    app: was
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: was
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      # ⚠️ 0 이어야 한다. 1 이면 롤아웃 중 정상 파드가 0 이 될 수 있고,
+      #    그 순간 BFF 의 WAS 호출이 전부 503 이 된다.
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: was
+    spec:
+      # PSA restricted 대응. Dockerfile 의 USER 10001 과 일치해야 한다.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # 같은 노드에 몰리지 않게 한다. 노드 1대가 죽어도 서비스가 남는다.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: was
+
+      containers:
+        - name: was
+          image: 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/was:__TAG__
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          envFrom:
+            - configMapRef:
+                name: was-config
+            - secretRef:
+                name: was-secret
+
+          env:
+            # LimitRange 512Mi 기준 힙 상한 약 384Mi (README §15).
+            # Dockerfile 의 JAVA_OPTS 를 덮어쓴다. 매니페스트가 최종 권위다.
+            - name: JAVA_OPTS
+              value: "-XX:MaxRAMPercentage=75.0 -XX:+UseSerialGC -Duser.timezone=Asia/Seoul"
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "384Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+
+          # -------------------------------------------------------------
+          # startupProbe - 콜드스타트 대응 (README §15)
+          #
+          # ⚠️ 이것이 없으면 첫 요청이 503 upstream_unavailable 이 된다.
+          #    WAS 첫 기동은 Hibernate SQL 생성 + BCrypt + MVC 초기화가
+          #    겹쳐 15초 안팎이 걸린다 (실측). 로컬 검증에서도 재현됐다.
+          #
+          #    startupProbe 가 통과할 때까지 liveness/readiness 는 실행되지
+          #    않는다. 최대 30 x 5s = 150초까지 기다린다.
+          # -------------------------------------------------------------
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          # liveness 는 /healthz 다. DB 를 보지 않는다.
+          # /readyz 를 여기 쓰면 DB 순단에 파드가 재시작되고,
+          # 재시작이 DB 부하를 더 키우는 악순환이 된다 (§6.1).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # readiness 는 /readyz. DB 커넥션까지 확인한다.
+          # 실패하면 트래픽만 빠지고 파드는 살아 있다.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # readOnlyRootFilesystem 대응. JVM 이 /tmp 에 쓴다.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # graceful shutdown. application.yaml 의 server.shutdown=graceful 과 한 쌍.
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: was-svc
+  namespace: app
+  labels:
+    app: was
+spec:
+  # ⚠️ ClusterIP 다. WAS 는 외부에서 도달할 수 없다 (§7.2).
+  #    Ingress 에 WAS 규칙을 추가하지 않는다.
+  type: ClusterIP
+  selector:
+    app: was
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
