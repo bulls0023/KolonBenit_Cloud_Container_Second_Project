@@ -39,7 +39,13 @@ param(
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
+
+# ⚠️ 'Stop' 을 쓰지 않는다.
+#    이 스크립트는 aws / docker / kubectl 네이티브 명령이 대부분이다.
+#    'Stop' 에서는 이들이 stderr 에 한 줄만 써도 NativeCommandError 로
+#    스크립트가 죽는다. 실패가 아닌 정보 출력에도 죽는다 (실측).
+#    성공/실패 판정은 전부 $LASTEXITCODE 로 명시한다.
+$ErrorActionPreference = 'Continue'
 
 $ACCOUNT  = '597106152264'
 $REGION   = 'ap-northeast-2'
@@ -65,6 +71,10 @@ function Assert-Prerequisite {
             exit 1
         }
     }
+
+    # 위와 같은 이유로 전 구간에서 네이티브 stderr 를 오류로 승격시키지 않는다.
+    # 판정은 전부 $LASTEXITCODE 로 한다.
+    $ErrorActionPreference = 'Continue'
 
     $ident = aws sts get-caller-identity --output json 2>$null | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) {
@@ -128,9 +138,21 @@ function Invoke-BuildPush {
     $image = "$REGISTRY/hybrid-toy/${Svc}:$Tag"
 
     # immutable tag 다. 이미 있으면 빌드 자체를 건너뛴다.
-    aws ecr describe-images --repository-name "hybrid-toy/$Svc" --image-ids imageTag=$Tag `
-        --region $REGION 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    #
+    # ⚠️ ErrorActionPreference='Stop' 에서는 네이티브 명령이 stderr 에 쓰기만 해도
+    #    NativeCommandError 로 승격되어 스크립트가 죽는다.
+    #    ecr describe-images 는 "이미지 없음"을 stderr 로 알린다 - 정상 경로다.
+    #    이 블록에서만 Continue 로 낮추고 종료코드로 판정한다.
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        aws ecr describe-images --repository-name "hybrid-toy/$Svc" `
+            --image-ids imageTag=$Tag --region $REGION 2>&1 | Out-Null
+        $exists = ($LASTEXITCODE -eq 0)
+    }
+    finally { $ErrorActionPreference = $prev }
+
+    if ($exists) {
         Write-Host "[SKIP ] $Svc : $Tag 태그가 이미 ECR 에 있다 (immutable)" -ForegroundColor Yellow
         return $true
     }
