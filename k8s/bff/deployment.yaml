@@ -73,12 +73,16 @@ spec:
             - name: COOKIE_SECURE
               value: "true"
 
+          # ⚠️ limits.cpu 는 ResourceQuota 총량과 함께 계산해야 한다.
+          #    1코어 x 4파드(WAS2+BFF2) = 4 로 quota(limits.cpu:4)를 정확히
+          #    소진해 patient-web 이 스케줄되지 못했다 (실측).
+          #    JVM 이 실제로 1코어를 쓴 적이 없다. 500m 로 낮춘다.
           resources:
             requests:
               cpu: "200m"
               memory: "384Mi"
             limits:
-              cpu: "1"
+              cpu: "500m"
               memory: "512Mi"
 
           # -------------------------------------------------------------

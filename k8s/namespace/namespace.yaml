@@ -50,6 +50,8 @@ spec:
       max:
         cpu: "1"
         memory: "1Gi"
+      # ⚠️ 개별 파드 limits 와 아래 ResourceQuota 총량은 반드시 함께 본다.
+      #    파드 수 x limits <= quota 여야 스케줄된다.
       min:
         cpu: "10m"
         memory: "64Mi"
@@ -73,6 +75,10 @@ spec:
   hard:
     requests.cpu: "2"
     requests.memory: "4Gi"
-    limits.cpu: "4"
+    # 계산 근거 (limits 기준)
+    #   WAS 2 x 500m + BFF 2 x 500m + patient-web 2 x 300m
+    #   + cloudflared 2 x 200m = 3.0  -> 여유 3.0
+    #   임시 파드(mysql-cli 등)와 롤아웃 중 maxSurge 를 위한 여유다.
+    limits.cpu: "6"
     limits.memory: "8Gi"
     pods: "20"
