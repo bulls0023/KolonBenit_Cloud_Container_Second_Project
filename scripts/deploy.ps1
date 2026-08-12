@@ -213,7 +213,14 @@ function Invoke-Apply {
     }
 
     Write-Host "[APPLY] $Svc" -ForegroundColor Cyan
-    kubectl apply --server-side -f $tmp
+
+    # ⚠️ --force-conflicts 가 필요한 이유
+    #    이전에 client-side apply(kubectl apply -f) 로 만든 리소스는
+    #    필드 소유권이 'kubectl-client-side-apply' 에 남는다.
+    #    server-side apply 는 그 필드를 건드릴 때 충돌로 거부한다.
+    #    이 매니페스트가 단일 권위이므로 소유권을 인수하는 것이 옳다.
+    #    (삭제가 아니라 소유권 이전이다. 파드는 롤링으로 교체된다.)
+    kubectl apply --server-side --force-conflicts -f $tmp
     if ($LASTEXITCODE -ne 0) { exit 1 }
 
     Remove-Item -Recurse -Force $tmp
