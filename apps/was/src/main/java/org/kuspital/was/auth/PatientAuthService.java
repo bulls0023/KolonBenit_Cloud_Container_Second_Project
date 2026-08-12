@@ -4,7 +4,6 @@ import org.kuspital.was.domain.PatientUser;
 import org.kuspital.was.error.ApiException;
 import org.kuspital.was.error.ErrorCode;
 import org.kuspital.was.repository.PatientUserRepository;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,17 +17,14 @@ public class PatientAuthService {
 
     private final PatientUserRepository repository;
     private final PasswordEncoder passwordEncoder;
-    private final int maxFailed;
-    private final int lockMinutes;
+    private final LoginAttemptService loginAttemptService;
 
     public PatientAuthService(PatientUserRepository repository,
                               PasswordEncoder passwordEncoder,
-                              @Value("${app.auth.max-failed-login}") int maxFailed,
-                              @Value("${app.auth.lock-minutes}") int lockMinutes) {
+                              LoginAttemptService loginAttemptService) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
-        this.maxFailed = maxFailed;
-        this.lockMinutes = lockMinutes;
+        this.loginAttemptService = loginAttemptService;
     }
 
     @Transactional
@@ -72,7 +68,9 @@ public class PatientAuthService {
         }
 
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
-            user.recordLoginFailure(maxFailed, lockMinutes, now);
+            // ⚠️ 별도 트랜잭션으로 즉시 커밋한다.
+            //    같은 트랜잭션에서 올리면 아래 예외가 롤백시켜 잠금이 작동하지 않는다.
+            loginAttemptService.recordPatientFailure(user.getPatientId());
             // 계정 없음과 비밀번호 오류를 구분하지 않는다 (README §6.7)
             throw ApiException.of(ErrorCode.INVALID_CREDENTIALS,
                     "아이디 또는 비밀번호가 올바르지 않습니다.");

@@ -29,7 +29,8 @@ param(
     # 다른 배치라면 명시적으로 넘긴다.
     #   .\prepare.ps1 -DbDir C:\choiseobin\db -WasDir C:\choiseobin\was
     [string] $DbDir,
-    [string] $WasDir
+    [string] $WasDir,
+    [string] $BffDir
 )
 
 Set-StrictMode -Version Latest
@@ -87,16 +88,25 @@ $wasDir = Resolve-Dir -Explicit $WasDir -Label 'WasDir' -Marker 'build.gradle.kt
     (Join-Path $root '..\was')
 )
 
-$dockerfile = Join-Path $wasDir 'Dockerfile'
+$bffDir = Resolve-Dir -Explicit $BffDir -Label 'BffDir' -Marker 'build.gradle.kts' -Candidates @(
+    (Join-Path $root 'apps\\bff'),
+    (Join-Path $root 'bff'),
+    (Join-Path $root '..\\bff')
+)
+
+# digest 치환 대상. 두 Dockerfile 이 같은 베이스를 쓴다.
+$dockerfiles = @((Join-Path $wasDir 'Dockerfile'), (Join-Path $bffDir 'Dockerfile'))
 
 Write-Host ''
 Write-Host '=== 경로 확인 ===' -ForegroundColor Cyan
 Write-Host "  db  : $dbDir"
 Write-Host "  was : $wasDir"
+Write-Host "  bff : $bffDir"
 
-# docker compose 가 참조할 WAS 빌드 컨텍스트를 .env 로 넘긴다.
+# docker compose 가 참조할 빌드 컨텍스트를 .env 로 넘긴다.
 # compose 파일에 상대 경로를 박으면 배치가 다를 때 조용히 엉뚱한 곳을 빌드한다.
 $wasContext = $wasDir
+$bffContext = $bffDir
 
 # ---------------------------------------------------------------------
 # 파일 입출력 - PowerShell 5.1 / 7 공용
@@ -133,11 +143,19 @@ function New-RandomPassword {
     param([int] $Length = 24)
     # MySQL 자리표시자 치환과 셸 인용을 깨지 않는 문자만 쓴다.
     # ' " $ ` \ 는 제외한다.
-    $chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!#%-_=+'
+    # ⚠️ '#' 을 넣지 않는다. .env 파서가 주석 시작으로 볼 수 있다.
+    # ⚠️ ' " $ ` \ 도 제외한다. SQL 치환과 셸 인용을 깨뜨린다.
+    $chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_'
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     $bytes = [byte[]]::new($Length)
     $rng.GetBytes($bytes)
     -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
+}
+
+function New-SigningKey {
+    # HS256 은 32바이트 이상을 요구한다. 넉넉히 48자를 만든다.
+    # 로컬 전용이다. 운영 키는 Secrets Manager 'bff-secret' 에서 온다 (§3.1).
+    return New-RandomPassword -Length 48
 }
 
 function New-BcryptHash {
@@ -170,21 +188,26 @@ Write-Host "  $BASE_IMAGE"
 Write-Host "  $digest" -ForegroundColor Green
 Write-Host '  ⚠️ 이 값을 README §21 digest 표에 기록한다.' -ForegroundColor Yellow
 
-$df = Read-Utf8 $dockerfile
-if ($df -match '__REPLACE_WITH_ACTUAL_DIGEST__') {
-    $df = $df.Replace('sha256:__REPLACE_WITH_ACTUAL_DIGEST__', $digest)
-    [System.IO.File]::WriteAllText($dockerfile, $df, $script:Utf8NoBom)
-    Write-Host '  Dockerfile 의 자리표시자를 치환했다.'
-}
-elseif ($df -match 'amazoncorretto:25-alpine@(sha256:[0-9a-f]{64})') {
-    if ($Matches[1] -ne $digest) {
-        Write-Host '  ⚠️ Dockerfile 의 digest 가 현재 이미지와 다르다.' -ForegroundColor Yellow
-        Write-Host "     기존: $($Matches[1])"
-        Write-Host "     현재: $digest"
-        Write-Host '     의도한 핀이라면 그대로 둔다. 갱신하려면 직접 수정한다.'
+foreach ($dockerfile in $dockerfiles) {
+
+    $label = Split-Path (Split-Path $dockerfile -Parent) -Leaf
+    $df = Read-Utf8 $dockerfile
+
+    if ($df -match '__REPLACE_WITH_ACTUAL_DIGEST__') {
+        $df = $df.Replace('sha256:__REPLACE_WITH_ACTUAL_DIGEST__', $digest)
+        [System.IO.File]::WriteAllText($dockerfile, $df, $script:Utf8NoBom)
+        Write-Host "  $label/Dockerfile : 자리표시자를 치환했다."
     }
-    else {
-        Write-Host '  Dockerfile digest 는 이미 최신이다.'
+    elseif ($df -match 'amazoncorretto:25-alpine@(sha256:[0-9a-f]{64})') {
+        if ($Matches[1] -ne $digest) {
+            Write-Host "  ⚠️ $label/Dockerfile 의 digest 가 현재 이미지와 다르다." -ForegroundColor Yellow
+            Write-Host "     기존: $($Matches[1])"
+            Write-Host "     현재: $digest"
+            Write-Host '     의도한 핀이라면 그대로 둔다. 갱신하려면 직접 수정한다.'
+        }
+        else {
+            Write-Host "  $label/Dockerfile : digest 최신"
+        }
     }
 }
 
@@ -197,8 +220,25 @@ if ((Test-Path $envFile) -and -not $Force) {
     $lines = @((Read-Utf8 $envFile) -split "`r?`n" | Where-Object { $_.Trim() -ne '' })
     $appWasPassword = (($lines | Where-Object { $_ -like 'APP_WAS_PASSWORD=*' }) -split '=', 2)[1]
     # 경로는 매번 갱신한다. 리포를 옮겼는데 옛 경로로 빌드하는 사고를 막는다.
-    $lines = $lines | Where-Object { $_ -notlike 'WAS_CONTEXT=*' }
-    Write-Utf8NoBom -Path $envFile -Content ($lines + "WAS_CONTEXT=$($wasContext -replace '\\','/')")
+    $lines = $lines | Where-Object {
+        $_ -notlike 'WAS_CONTEXT=*' -and $_ -notlike 'BFF_CONTEXT=*'
+    }
+
+    # 배치 3c 이전에 만들어진 .env 에는 BFF 용 키가 없다. 없으면 보충한다.
+    # 있으면 유지한다 - 서명키가 바뀌면 발급된 토큰이 전부 무효가 된다.
+    if (-not ($lines | Where-Object { $_ -like 'JWT_SIGNING_KEY=*' })) {
+        $lines = $lines + "JWT_SIGNING_KEY=$(New-SigningKey)"
+        Write-Host '  JWT_SIGNING_KEY 를 새로 발급했다 (기존 .env 에 없었다).'
+    }
+    if (-not ($lines | Where-Object { $_ -like 'COOKIE_SECURE=*' })) {
+        $lines = $lines + 'COOKIE_SECURE=false'
+        Write-Host '  COOKIE_SECURE=false 를 추가했다 (로컬 http).'
+    }
+
+    Write-Utf8NoBom -Path $envFile -Content ($lines + @(
+        "WAS_CONTEXT=$($wasContext -replace '\\','/')",
+        "BFF_CONTEXT=$($bffContext -replace '\\','/')"
+    ))
 }
 else {
     $appWasPassword = New-RandomPassword
@@ -207,9 +247,16 @@ else {
         '# local/prepare.ps1 이 생성했다. 로컬 전용이며 커밋되지 않는다.',
         "MYSQL_ROOT_PASSWORD=$rootPassword",
         "APP_WAS_PASSWORD=$appWasPassword",
-        "WAS_CONTEXT=$($wasContext -replace '\\','/')"
+        "JWT_SIGNING_KEY=$(New-SigningKey)",
+        '',
+        '# 로컬은 http 다. Secure 쿠키는 저장되지 않으므로 false 로 낮춘다.',
+        '# 운영(EKS)은 반드시 true. 이 값을 그대로 배포하지 않는다.',
+        'COOKIE_SECURE=false',
+        '',
+        "WAS_CONTEXT=$($wasContext -replace '\\','/')",
+        "BFF_CONTEXT=$($bffContext -replace '\\','/')"
     )
-    Write-Host '  .env 발급 완료 (무작위 24자)'
+    Write-Host '  .env 발급 완료 (비밀번호 24자 / JWT 서명키 48자)'
 }
 
 Write-Host '  직원 BCrypt 해시 생성 중...'
@@ -263,8 +310,9 @@ Write-Host "  doc_kim / doc_lee / nur_park / adm_choi"
 Write-Host "  비밀번호: $LOCAL_STAFF_PASSWORD" -ForegroundColor DarkGray
 Write-Host ''
 Write-Host '다음 단계' -ForegroundColor Cyan
-Write-Host '  docker compose up --build'
-Write-Host '  .\verify-was.ps1'
+Write-Host '  docker compose up --build -d --wait     # --wait 필수'
+Write-Host '  .\verify-was.ps1                        # WAS 직접 검증 (36개)'
+Write-Host '  .\verify-bff.ps1                        # BFF 경유 검증 (39개)'
 Write-Host ''
 Write-Host '⚠️ 재실행 시 반드시 볼륨을 지운다. init 스크립트는 빈 볼륨에서만 돈다.' -ForegroundColor Yellow
 Write-Host '   docker compose down -v'

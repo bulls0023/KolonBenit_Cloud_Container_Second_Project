@@ -242,6 +242,34 @@ Test-Case '없는 계정도 동일하게 401' 401 (Invoke-Api POST '/internal/pa
     login_id = 'no_such_user_zzz'; password = 'Whatever!2026'
 }) 'invalid_credentials'
 
+# ---------------------------------------------------------------------
+# 계정 잠금 (README §6.5 - 5회 실패 시 30분 잠금)
+#
+#   ⚠️ 이 시나리오가 없으면 잠금 미작동이 드러나지 않는다.
+#      인증 실패는 예외로 응답하는데, 예외는 트랜잭션을 롤백한다.
+#      같은 트랜잭션에서 카운터를 올리면 증가분이 함께 사라진다.
+#      실제로 그 상태였고, 다른 어떤 시나리오도 이를 잡지 못했다.
+#
+#   전용 계정을 새로 만들어 쓴다. 잠긴 계정은 이후 시나리오에 재사용할 수 없다.
+# ---------------------------------------------------------------------
+$lockId = "lk$suffix"
+Invoke-Api POST '/internal/patient/auth/register' @{} @{
+    login_id = $lockId; password = 'Patient!2026'; name = '잠금검증'; birth_date = '1988-08-08'
+} | Out-Null
+
+for ($i = 1; $i -le 4; $i++) {
+    Invoke-Api POST '/internal/patient/auth/login' @{} @{
+        login_id = $lockId; password = 'Wrong!12345' } | Out-Null
+}
+
+# 5회째 - 여기서 임계치에 도달한다
+Test-Case '실패 5회째는 아직 401' 401 (Invoke-Api POST '/internal/patient/auth/login' @{} @{
+    login_id = $lockId; password = 'Wrong!12345' }) 'invalid_credentials'
+
+# 잠긴 뒤에는 올바른 비밀번호여도 423 이어야 한다
+Test-Case '5회 실패 후 423 account_locked' 423 (Invoke-Api POST '/internal/patient/auth/login' @{} @{
+    login_id = $lockId; password = 'Patient!2026' }) 'account_locked'
+
 $docLogin = Invoke-Api POST '/internal/staff/auth/login' @{} @{ login_id = 'doc_kim'; password = $StaffPassword }
 Test-Case '의사 로그인 200 role=DOCTOR' 200 $docLogin -Extra { param($r) $r.Body.role -eq 'DOCTOR' }
 $doctorStaffId = if ($docLogin.Body) { $docLogin.Body.actor_id } else { 0 }
@@ -270,7 +298,18 @@ Test-Case '의사 목록 200 (2명)' 200 $doctors -Extra { param($r) $r.Body.Cou
 $doctorId = if ($doctors.Body) { $doctors.Body[0].doctor_id } else { 1 }
 $doctorId2 = if ($doctors.Body -and $doctors.Body.Count -ge 2) { $doctors.Body[1].doctor_id } else { 2 }
 
-$slots = Invoke-Api GET "/internal/patient/slots?doctorId=$doctorId" $ph
+# ⚠️ 오늘 진료시간(09:00~17:30)이 지나면 오늘 슬롯은 0건이다.
+#    시각에 따라 결과가 달라지는 검증은 재현 가능하지 않다.
+#    오늘부터 6일 뒤까지 훑어 첫 가용 날짜를 쓴다 (seed 는 7일치를 만든다).
+$slots = $null
+$slotDate = $null
+for ($d = 0; $d -le 6; $d++) {
+    $try = (Get-Date).AddDays($d).ToString('yyyy-MM-dd')
+    $r = Invoke-Api GET "/internal/patient/slots?doctorId=$doctorId&date=$try" $ph
+    if ($r.Status -eq 200 -and @($r.Body).Count -gt 0) { $slots = $r; $slotDate = $try; break }
+    if ($null -eq $slots) { $slots = $r }
+}
+Write-Host "         (예약 대상 날짜: $slotDate)" -ForegroundColor DarkGray
 Test-Case '슬롯 조회 200' 200 $slots
 
 # 계약상 예약 가능 슬롯은 미래여야 한다. 목록에 과거가 섞여 있으면 그 자체가 결함이다.
@@ -281,12 +320,13 @@ Test-Case '슬롯 목록에 과거 시각 없음' 200 $slots -Extra {
     foreach ($s in $r.Body) { if ([datetime]$s.slot_at -lt $now) { return $false } }
     return $true
 }
-$slotId = if ($slots.Body -and $slots.Body.Count -gt 0) { $slots.Body[0].slot_id } else { 0 }
-$slotAt = if ($slots.Body -and $slots.Body.Count -gt 0) { $slots.Body[0].slot_at } else { $null }
+$slotId = if (@($slots.Body).Count -gt 0) { @($slots.Body)[0].slot_id } else { 0 }
+$slotAt = if (@($slots.Body).Count -gt 0) { @($slots.Body)[0].slot_at } else { $null }
 
 if ($slotId -eq 0) {
-    Write-Host '  [WARN] 예약 가능 슬롯이 0건이다. 오늘 진료시간(09:00~17:30)이 이미 지났을 수 있다.' -ForegroundColor Yellow
-    Write-Host '         03_seed.sql 은 CURDATE() 기준 7일치를 만든다. 이후 시나리오가 연쇄 실패한다.' -ForegroundColor Yellow
+    Write-Host '  [WARN] 7일 범위 전체에 예약 가능 슬롯이 0건이다.' -ForegroundColor Yellow
+    Write-Host '         03_seed.sql 이 실행되지 않았거나 슬롯이 전부 점유됐다.' -ForegroundColor Yellow
+    Write-Host '         docker compose down -v 후 재기동한다.' -ForegroundColor Yellow
 }
 
 $book = Invoke-Api POST '/internal/patient/appointments' $ph @{ slot_id = $slotId; symptom = '두통' }
@@ -305,7 +345,7 @@ Test-Case '같은 슬롯 타 환자 409 slot_taken' 409 (Invoke-Api POST '/inter
 }) 'slot_taken'
 
 # 같은 환자, 같은 시각, 다른 의사
-$slots2 = Invoke-Api GET "/internal/patient/slots?doctorId=$doctorId2" $ph
+$slots2 = Invoke-Api GET "/internal/patient/slots?doctorId=$doctorId2&date=$slotDate" $ph
 $sameTimeSlot = 0
 if ($slots2.Body) {
     foreach ($s in $slots2.Body) { if ($s.slot_at -eq $slotAt) { $sameTimeSlot = $s.slot_id; break } }

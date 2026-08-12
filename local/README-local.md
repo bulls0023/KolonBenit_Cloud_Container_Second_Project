@@ -1,4 +1,4 @@
-# 로컬 통합 검증 (배치 2c)
+# 로컬 통합 검증 (배치 2c + 3c)
 
 계약: README v3.1 §6.1 / §6.8 / §13.2 · 구축설명서 §6.2
 
@@ -12,19 +12,30 @@
 | `app_was` 최소 권한으로 앱이 도는지 | 미검증 |
 | API 계약 (인증·403·409·snake_case) | 미검증 |
 
+## 구성
+
+```
+verify-bff  ->  bff (18081)  ->  was (18080)  ->  mysql (13306)
+verify-was  ------------------>  was
+```
+
+`was` 의 호스트 포트는 **검증·디버깅 전용**이다. EKS 에서 WAS 는 ClusterIP 로만
+노출되며 외부에서 도달할 수 없다 (§7.2).
+
 ## 실행
 
 ```powershell
 cd local
 .\prepare.ps1
-docker compose up --build
+docker compose up --build -d --wait
 ```
 
-다른 창에서:
+`--wait` 없이 `-d` 만 쓰면 **기동 완료 전에 반환한다.** 검증 스크립트가
+전 항목 `status=-1` 로 떨어지고, 애플리케이션 결함으로 오진하게 된다.
 
 ```powershell
-cd local
-.\verify-was.ps1
+.\verify-was.ps1      # WAS 직접 검증 (36개)
+.\verify-bff.ps1      # BFF 경유 검증 (45개)
 ```
 
 ## 정리
@@ -42,6 +53,27 @@ docker compose down -v
 
 환자는 `verify-was.ps1` 이 매 실행마다 새로 가입시킨다.
 
+## 게이트
+
+| 게이트 | 조건 |
+|---|---|
+| **D3** | `/readyz` (18080) → `{"status":"ok","db":"up"}` |
+| **W2** | `verify-was.ps1` → PASS 36 / FAIL 0 |
+| **B1** | `/readyz` (18081) → `{"status":"ok"}` |
+| **B2** | `verify-bff.ps1` → PASS 45 / FAIL 0 |
+
+## verify-bff 에서 처음 검증되는 것
+
+| 항목 | 계약 |
+|---|---|
+| 외부 `X-Actor-*` 제거 | §6.6 위조 방어 1번 원칙 |
+| 전달수단 ↔ actor_type 바인딩 | §6.5 — 직원 토큰을 쿠키로 보내면 401 |
+| 환자 쿠키 속성 | HttpOnly / Path=/api/bff/patient |
+| 응답 JSON 에 토큰 미포함 | §6.5 |
+| CSRF | 환자 경로만 적용, 직원 Bearer 면제 |
+| WAS 4xx 통과 전달 | §6.6 — 상태·본문 그대로 |
+| trace_id 연속성 | §6.7 |
+
 ## 예상 실패 지점
 
 | 증상 | 원인 | 조치 |
@@ -51,3 +83,6 @@ docker compose down -v
 | `SELECT command denied` | `02_grants.sql` 에 테이블 GRANT 누락 | 해당 테이블 추가 후 `down -v` → 재기동 |
 | mysql 헬스체크가 계속 starting | `04_icd_seed.sql` 적재 중 | 최대 5분. `docker compose logs mysql` 로 진행 확인 |
 | WAS 가 mysql 보다 먼저 떠서 죽음 | `depends_on: condition` 누락 | 이 compose 에는 이미 걸려 있다 |
+| BFF 기동 실패 `JWT_SIGNING_KEY` | `.env` 에 키 없음 | `.\prepare.ps1` 재실행 (없으면 자동 보충) |
+| 쿠키가 저장되지 않음 | `COOKIE_SECURE=true` + http | `.env` 의 `COOKIE_SECURE=false` 확인 |
+| 검증 전 항목 `status=-1` | 기동 전에 스크립트 실행 | `--wait` 사용 |

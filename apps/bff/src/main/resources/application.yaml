@@ -1,0 +1,76 @@
+# =====================================================================
+# Hybrid Toy Project - BFF application.yaml
+# 계약: README v3.1 §6.5 / §6.6 / §6.7
+# =====================================================================
+
+spring:
+  application:
+    name: bff
+
+  # -------------------------------------------------------------------
+  # ⚠️ DataSource 설정이 없다. BFF 는 DB 에 접근하지 않는다 (§6.5).
+  #    spring-boot-starter-data-jpa 도 의존성에 없다. 넣지 않는다.
+  # -------------------------------------------------------------------
+
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+    # ⚠️ serialization.write-dates-as-timestamps 를 넣지 않는다.
+    #    Jackson 3 에서 DateTimeFeature 로 이동했다. SerializationFeature 로
+    #    바인딩하면 컨텍스트 기동이 실패한다 (README §15).
+
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+  shutdown: graceful
+  error:
+    whitelabel:
+      enabled: false
+
+logging:
+  level:
+    root: INFO
+    org.kuspital.bff: INFO
+    org.springframework.security: WARN
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{trace_id:-}] %logger{36} - %msg%n"
+
+# ---------------------------------------------------------------------
+# 애플리케이션 고유 설정
+# ---------------------------------------------------------------------
+app:
+  jwt:
+    # ⚠️ 32바이트 이상. Secret 'bff-secret' / key JWT_SIGNING_KEY (§6.5)
+    #    기본값을 두지 않는다. 미주입 시 기동을 실패시킨다 - 개발용 약한 키가
+    #    운영에 섞여 들어가는 것을 막는 유일한 방법이다.
+    signing-key: ${JWT_SIGNING_KEY}
+    issuer: hybrid-toy-bff
+    audience: hybrid-toy
+    patient-ttl-minutes: 30
+    staff-ttl-hours: 8
+
+  cookie:
+    # 로컬 http 검증에서는 Secure 쿠키가 저장되지 않는다.
+    # 운영(EKS)에서는 반드시 true. 환경변수로만 낮춘다.
+    secure: ${COOKIE_SECURE:true}
+    patient-token-name: PATIENT_TOKEN
+    csrf-token-name: XSRF-TOKEN
+    path: /api/bff/patient
+
+  was:
+    base-url: ${WAS_BASE_URL:http://was-svc:8080}
+    connect-timeout-ms: 2000
+    read-timeout-ms: 5000
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+logging:
+  level:
+    org.kuspital.bff: DEBUG

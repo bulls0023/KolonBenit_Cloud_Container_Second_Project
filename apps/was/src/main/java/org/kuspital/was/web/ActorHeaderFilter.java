@@ -140,6 +140,7 @@ public class ActorHeaderFilter extends OncePerRequestFilter {
         String json = "{\"error\":\"" + ErrorCode.FORBIDDEN.code() + "\","
                     + "\"message\":\"요청 권한을 확인할 수 없습니다.\","
                     + "\"trace_id\":" + (traceId == null ? "null" : "\"" + traceId + "\"") + "}";
+        // trace_id 가 null 이면 BFF 가 준 값이 없다는 뜻이다. 직접 호출 경로다.
 
         // ⚠️ getWriter() + 암묵 flush 에 의존하지 않는다.
         //    필터는 DispatcherServlet 밖에서 응답을 직접 만든다. 인코딩 협상과
@@ -148,8 +149,9 @@ public class ActorHeaderFilter extends OncePerRequestFilter {
         //    바이트를 직접 만들고 Content-Length 를 명시한 뒤 즉시 flush 한다.
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
 
-        // reset() 은 TraceIdFilter 가 넣은 X-Trace-Id 헤더까지 지운다. 다시 넣는다.
-        response.reset();
+        // ⚠️ response.reset() 을 호출하지 않는다.
+        //    reset() 은 설정된 모든 헤더를 지운다. TraceIdFilter 의 X-Trace-Id 가
+        //    함께 사라져 추적 불가 응답이 된다 (BFF 에서 실측 확인).
         if (traceId != null) {
             response.setHeader(TraceIdFilter.HEADER, traceId);
         }
