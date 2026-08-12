@@ -176,8 +176,18 @@ Write-Host ''
 Write-Host '[진입 · 라우팅]' -ForegroundColor Cyan
 
 $root = Invoke-Api GET '/'
+
+# ⚠️ 한글로 판정하지 않는다. PS 5.1 은 Content-Type 에 charset 이 없으면
+#    응답 본문을 Latin-1 로 디코딩한다. 서버는 정상인데 매칭이 실패한다.
+#    ASCII 마커로 도달을 확인하고, 인코딩은 헤더로 따로 검증한다.
 Test-Case '루트 200 (patient-web 도달)' 200 $root `
-    -Extra { param($r) $r.Raw -match '구스피탈' }
+    -Extra { param($r) $r.Raw -match 'lang="ko"' -and $r.Raw -match 'api/bff/patient' }
+
+Test-Case 'Content-Type 에 charset=utf-8' 200 $root -Extra {
+    param($r)
+    $ct = $r.Headers['Content-Type']
+    $ct -and ([string]$ct).ToLower().Contains('utf-8')
+}
 
 Test-Case 'HTTPS 종단 성공' 200 $root -Extra { param($r) $BaseUrl.StartsWith('https://') }
 
@@ -195,8 +205,19 @@ Write-Host '[환자 인증 · Secure 쿠키]' -ForegroundColor Cyan
 $csrf = Invoke-Api GET '/api/bff/patient/auth/csrf' -NewSession
 Test-Case 'CSRF 발급 204' 204 $csrf
 
-Test-Case 'XSRF-TOKEN 수신 (Secure)' 204 $csrf -Extra {
+Test-Case 'XSRF-TOKEN 수신' 204 $csrf -Extra {
     param($r) $null -ne (Get-Cookie 'XSRF-TOKEN')
+}
+
+# 🚨 브라우저 조건 재현.
+#    화면은 / 에서 열린다. document.cookie 는 현재 문서 경로에 해당하는
+#    쿠키만 반환하므로, XSRF-TOKEN 의 Path 가 /api/bff/patient 면
+#    브라우저 JS 가 영원히 읽지 못하고 모든 POST 가 403 이 된다.
+#    PowerShell 은 경로를 지정해 조회하므로 이 항목이 없으면 놓친다 (실측).
+Test-Case 'XSRF-TOKEN 이 루트 경로에서 읽힌다' 204 $csrf -Extra {
+    param($r)
+    $c = $script:Session.Cookies.GetCookies($BaseUrl) | Where-Object { $_.Name -eq 'XSRF-TOKEN' }
+    $null -ne $c
 }
 
 $suffix  = Get-Random -Maximum 99999

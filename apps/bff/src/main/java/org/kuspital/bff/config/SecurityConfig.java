@@ -61,7 +61,18 @@ public class SecurityConfig {
             .csrf(csrf -> {
                 CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
                 repo.setCookieName(cookieProps.csrfTokenName());
-                repo.setCookiePath(cookieProps.path());
+                // ⚠️ CSRF 쿠키의 Path 는 루트다. PATIENT_TOKEN 과 다르다.
+                //
+                //    XSRF-TOKEN 은 JS 가 읽어서 헤더에 실어야 하는 쿠키다.
+                //    그런데 document.cookie 는 "현재 문서 경로"에 해당하는
+                //    쿠키만 반환한다. 화면이 / 에서 열리므로
+                //    Path=/api/bff/patient 로 두면 브라우저에서 영원히 읽히지 않고
+                //    모든 POST 가 403 이 된다 (실측 - 스크립트 검증은 통과했다.
+                //    PowerShell CookieContainer 는 경로를 지정해 조회하기 때문이다).
+                //
+                //    Path 축소는 PATIENT_TOKEN 에만 적용한다. 그쪽은 HttpOnly 라
+                //    JS 가 읽을 일이 없고, 직원 경로로 새어나가면 안 된다.
+                repo.setCookiePath("/");
                 repo.setCookieCustomizer(c -> {
                     c.secure(cookieProps.secure());
                     c.sameSite("Lax");
