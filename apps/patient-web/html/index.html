@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>구스피탈 · 진료 예약</title>
+<!--
+  =====================================================================
+  patient-web
+  계약: README v3.1 §6.5 / §6.6 / §6.9
+
+  ⚠️ 동일 출처로 호출한다. BFF_BASE_URL 을 쓰지 않는다.
+     Ingress 가 /api/bff/patient 를 bff-svc 로 라우팅하므로
+     브라우저는 자기 도메인의 상대 경로만 호출하면 된다. CORS 불필요.
+
+  ⚠️ 환자 JWT 를 코드가 만지지 않는다.
+     HttpOnly 쿠키라 JS 로 읽을 수 없다. 그것이 설계다.
+     localStorage 에 토큰을 넣는 순간 XSS 로 탈취 가능해진다.
+
+  ⚠️ CSRF 토큰은 매 요청 직전 쿠키에서 다시 읽는다.
+     한 번 읽어 캐시하면 토큰 갱신 후 403 이 난다 (실측).
+  =====================================================================
+-->
+<style>
+  /* ---------------------------------------------------------------
+     진료 기록지의 물성에서 가져온다. 종이색 바탕, 잉크 글자,
+     상태는 탭 색으로만 구분. 장식 없음.
+     --------------------------------------------------------------- */
+  :root{
+    --paper:#FBFAF7;
+    --ink:#16302B;
+    --ink-soft:#5C6B66;
+    --line:#DFDBD2;
+    --pine:#0F6E5C;
+    --pine-dark:#0A4F42;
+    --alert:#B4472E;
+    --amber:#9A6B14;
+    --radius:3px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;
+    font-size:15px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:32px 20px 80px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:8px}
+  h1{
+    font-size:26px;font-weight:700;margin:0;letter-spacing:-.02em;
+  }
+  header .sub{
+    font-size:12px;color:var(--ink-soft);letter-spacing:.14em;
+    text-transform:uppercase;margin-top:4px;
+  }
+  #who{
+    float:right;font-size:13px;color:var(--pine);font-weight:600;
+    margin-top:6px;
+  }
+
+  /* 단계는 실제 순서가 있다. 번호가 정보다. */
+  section{
+    border-bottom:1px solid var(--line);
+    padding:24px 0;
+  }
+  section h2{
+    font-size:15px;font-weight:700;margin:0 0 14px;
+    display:flex;align-items:baseline;gap:10px;
+  }
+  section h2 .n{
+    font-size:11px;font-weight:700;color:var(--pine);
+    border:1px solid var(--pine);border-radius:2px;
+    padding:1px 6px;letter-spacing:.06em;
+  }
+  section h2 .hint{
+    font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:auto;
+  }
+
+  label{display:block;font-size:12px;color:var(--ink-soft);margin:10px 0 3px}
+  input,select{
+    width:100%;padding:9px 11px;font-size:15px;font-family:inherit;
+    border:1px solid var(--line);border-radius:var(--radius);
+    background:#fff;color:var(--ink);
+  }
+  input:focus,select:focus,button:focus-visible{
+    outline:2px solid var(--pine);outline-offset:1px;border-color:var(--pine);
+  }
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:150px}
+
+  button{
+    font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;
+    padding:9px 18px;border-radius:var(--radius);
+    border:1px solid var(--pine);background:var(--pine);color:#fff;
+    margin-top:14px;
+  }
+  button:hover{background:var(--pine-dark);border-color:var(--pine-dark)}
+  button.ghost{background:transparent;color:var(--pine)}
+  button.ghost:hover{background:rgba(15,110,92,.07)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+
+  /* 예약은 시간을 고르는 일이다. 슬롯을 시간표로 보여준다. */
+  .slots{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));
+    gap:6px;margin-top:12px;
+  }
+  .slot{
+    padding:9px 4px;text-align:center;font-size:14px;font-variant-numeric:tabular-nums;
+    border:1px solid var(--line);border-radius:var(--radius);
+    background:#fff;cursor:pointer;transition:none;
+  }
+  .slot:hover{border-color:var(--pine);color:var(--pine)}
+  .slot[aria-pressed="true"]{
+    background:var(--pine);border-color:var(--pine);color:#fff;font-weight:600;
+  }
+
+  .card{
+    border:1px solid var(--line);border-left:3px solid var(--pine);
+    border-radius:var(--radius);background:#fff;
+    padding:12px 14px;margin-top:10px;
+  }
+  .card.done{border-left-color:var(--ink-soft)}
+  .card.cancelled{border-left-color:var(--alert)}
+  .card .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+  .card .vno{font-size:11px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .card .when{font-weight:600;font-variant-numeric:tabular-nums}
+  .card .meta{font-size:13px;color:var(--ink-soft);margin-top:3px}
+  .card ul{margin:8px 0 0;padding-left:18px;font-size:14px}
+  .card li{margin:2px 0}
+
+  .status{
+    font-size:11px;font-weight:700;letter-spacing:.06em;
+    padding:2px 7px;border-radius:2px;white-space:nowrap;
+  }
+  .status.BOOKED{background:rgba(15,110,92,.12);color:var(--pine)}
+  .status.DONE{background:rgba(92,107,102,.15);color:var(--ink-soft)}
+  .status.CANCELLED{background:rgba(180,71,46,.12);color:var(--alert)}
+
+  .empty{color:var(--ink-soft);font-size:14px;padding:12px 0}
+
+  #msg{
+    position:sticky;bottom:16px;margin-top:20px;padding:11px 14px;
+    border-radius:var(--radius);font-size:14px;display:none;
+  }
+  #msg.ok{display:block;background:rgba(15,110,92,.1);border:1px solid var(--pine);color:var(--pine-dark)}
+  #msg.err{display:block;background:rgba(180,71,46,.09);border:1px solid var(--alert);color:var(--alert)}
+
+  .hidden{display:none}
+  footer{margin-top:32px;font-size:12px;color:var(--ink-soft)}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span id="who"></span>
+    <h1>구스피탈</h1>
+    <div class="sub">진료 예약 · 처방전 확인</div>
+  </header>
+
+  <!-- 1. 계정 -->
+  <section id="sec-auth">
+    <h2><span class="n">1</span> 계정
+      <span class="hint">가입하거나 로그인합니다</span>
+    </h2>
+
+    <div id="auth-forms">
+      <div class="row">
+        <div>
+          <label for="loginId">아이디</label>
+          <input id="loginId" autocomplete="username" placeholder="4자 이상">
+        </div>
+        <div>
+          <label for="password">비밀번호</label>
+          <input id="password" type="password" autocomplete="current-password" placeholder="8자 이상">
+        </div>
+      </div>
+
+      <div id="signupOnly" class="hidden">
+        <div class="row">
+          <div>
+            <label for="name">이름</label>
+            <input id="name" autocomplete="name">
+          </div>
+          <div>
+            <label for="birthDate">생년월일</label>
+            <input id="birthDate" type="date">
+          </div>
+          <div>
+            <label for="phone">연락처</label>
+            <input id="phone" placeholder="010-0000-0000">
+          </div>
+        </div>
+      </div>
+
+      <button id="btnLogin">로그인</button>
+      <button id="btnToSignup" class="ghost">가입하기</button>
+      <button id="btnSignup" class="ghost hidden">가입 완료</button>
+      <button id="btnToLogin" class="ghost hidden">로그인으로</button>
+    </div>
+
+    <div id="authed" class="hidden">
+      <button id="btnLogout" class="ghost">로그아웃</button>
+    </div>
+  </section>
+
+  <!-- 2. 예약 -->
+  <section id="sec-book" class="hidden">
+    <h2><span class="n">2</span> 진료 예약
+      <span class="hint">의사와 시간을 고릅니다</span>
+    </h2>
+
+    <div class="row">
+      <div>
+        <label for="doctor">의사</label>
+        <select id="doctor"></select>
+      </div>
+      <div>
+        <label for="date">날짜</label>
+        <input id="date" type="date">
+      </div>
+    </div>
+
+    <label>예약 가능 시간</label>
+    <div class="slots" id="slots"></div>
+
+    <label for="symptom">증상 <span style="color:var(--ink-soft)">(선택)</span></label>
+    <input id="symptom" placeholder="예: 이틀째 기침과 미열">
+
+    <button id="btnBook" disabled>예약하기</button>
+  </section>
+
+  <!-- 3. 내 예약 -->
+  <section id="sec-appt" class="hidden">
+    <h2><span class="n">3</span> 내 예약
+      <span class="hint">예약 내역과 진행 상태</span>
+    </h2>
+    <div id="appts"><div class="empty">불러오는 중…</div></div>
+  </section>
+
+  <!-- 4. 처방전 -->
+  <section id="sec-rx" class="hidden">
+    <h2><span class="n">4</span> 처방전
+      <span class="hint">진료 후 발급됩니다</span>
+    </h2>
+    <div id="rx"><div class="empty">불러오는 중…</div></div>
+  </section>
+
+  <div id="msg" role="status" aria-live="polite"></div>
+
+  <footer>Hybrid Toy Project · 환자용 화면</footer>
+</div>
+
+<script>
+"use strict";
+
+const API = "/api/bff/patient";
+const $ = (id) => document.getElementById(id);
+
+let selectedSlot = null;
+
+// -----------------------------------------------------------------
+// CSRF
+//
+// XSRF-TOKEN 은 HttpOnly=false 라 JS 가 읽을 수 있다. 그것이 용도다.
+// PATIENT_TOKEN 은 HttpOnly 라 읽을 수 없고, 읽을 필요도 없다.
+// 브라우저가 동일 출처 요청에 자동으로 실어 보낸다.
+// -----------------------------------------------------------------
+function readCookie(name) {
+  const hit = document.cookie.split("; ").find((c) => c.startsWith(name + "="));
+  return hit ? decodeURIComponent(hit.slice(name.length + 1)) : null;
+}
+
+async function ensureCsrf() {
+  if (readCookie("XSRF-TOKEN")) return;
+  await fetch(API + "/auth/csrf", { credentials: "same-origin" });
+}
+
+async function api(method, path, body) {
+  const headers = { Accept: "application/json" };
+
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (method !== "GET") {
+    await ensureCsrf();
+    // 캐시하지 않는다. 매번 쿠키에서 다시 읽는다.
+    const t = readCookie("XSRF-TOKEN");
+    if (t) headers["X-XSRF-TOKEN"] = t;
+  }
+
+  const res = await fetch(API + path, {
+    method,
+    headers,
+    credentials: "same-origin",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  const text = await res.text();
+  let data = null;
+  if (text) { try { data = JSON.parse(text); } catch (e) { /* 비 JSON 은 무시 */ } }
+
+  if (!res.ok) {
+    const err = new Error((data && data.message) || "요청을 처리하지 못했습니다.");
+    err.status = res.status;
+    err.code = data && data.error;
+    throw err;
+  }
+  return data;
+}
+
+// 오류는 사과하지 않는다. 무엇이 일어났고 무엇을 하면 되는지만 말한다.
+function say(text, isError) {
+  const m = $("msg");
+  m.textContent = text;
+  m.className = isError ? "err" : "ok";
+  if (!isError) setTimeout(() => { m.className = ""; }, 4000);
+}
+
+const fmtTime = (iso) =>
+  new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+const fmtFull = (iso) =>
+  new Date(iso).toLocaleString("ko-KR",
+    { month: "long", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+// -----------------------------------------------------------------
+// 화면 전환
+// -----------------------------------------------------------------
+function showLoggedIn(name) {
+  $("who").textContent = name ? name + " 님" : "";
+  $("auth-forms").classList.add("hidden");
+  $("authed").classList.remove("hidden");
+  ["sec-book", "sec-appt", "sec-rx"].forEach((id) => $(id).classList.remove("hidden"));
+  loadDoctors();
+  loadAppointments();
+  loadPrescriptions();
+}
+
+function showLoggedOut() {
+  $("who").textContent = "";
+  $("auth-forms").classList.remove("hidden");
+  $("authed").classList.add("hidden");
+  ["sec-book", "sec-appt", "sec-rx"].forEach((id) => $(id).classList.add("hidden"));
+}
+
+// -----------------------------------------------------------------
+// 인증
+// -----------------------------------------------------------------
+$("btnToSignup").onclick = () => {
+  $("signupOnly").classList.remove("hidden");
+  $("btnSignup").classList.remove("hidden");
+  $("btnToLogin").classList.remove("hidden");
+  $("btnLogin").classList.add("hidden");
+  $("btnToSignup").classList.add("hidden");
+};
+
+$("btnToLogin").onclick = () => {
+  $("signupOnly").classList.add("hidden");
+  $("btnSignup").classList.add("hidden");
+  $("btnToLogin").classList.add("hidden");
+  $("btnLogin").classList.remove("hidden");
+  $("btnToSignup").classList.remove("hidden");
+};
+
+$("btnLogin").onclick = async () => {
+  try {
+    const r = await api("POST", "/auth/login", {
+      login_id: $("loginId").value.trim(),
+      password: $("password").value,
+    });
+    say("로그인했습니다.");
+    showLoggedIn(r && r.name);
+  } catch (e) {
+    say(e.message, true);
+  }
+};
+
+$("btnSignup").onclick = async () => {
+  try {
+    const r = await api("POST", "/auth/register", {
+      login_id: $("loginId").value.trim(),
+      password: $("password").value,
+      name: $("name").value.trim(),
+      birth_date: $("birthDate").value,
+      phone: $("phone").value.trim() || null,
+    });
+    say("가입했습니다.");
+    showLoggedIn(r && r.name);
+  } catch (e) {
+    say(e.message, true);
+  }
+};
+
+$("btnLogout").onclick = async () => {
+  try { await api("POST", "/auth/logout"); } catch (e) { /* 이미 만료됐을 수 있다 */ }
+  showLoggedOut();
+  say("로그아웃했습니다.");
+};
+
+// -----------------------------------------------------------------
+// 예약
+// -----------------------------------------------------------------
+async function loadDoctors() {
+  try {
+    const list = await api("GET", "/doctors");
+    const sel = $("doctor");
+    sel.innerHTML = "";
+    (list || []).forEach((d) => {
+      const o = document.createElement("option");
+      o.value = d.doctor_id;
+      o.textContent = d.department + " · " + d.name + (d.specialty ? " (" + d.specialty + ")" : "");
+      sel.appendChild(o);
+    });
+    if (!$("date").value) $("date").value = new Date().toISOString().slice(0, 10);
+    loadSlots();
+  } catch (e) {
+    say(e.message, true);
+  }
+}
+
+async function loadSlots() {
+  const box = $("slots");
+  const doctorId = $("doctor").value;
+  const date = $("date").value;
+  selectedSlot = null;
+  $("btnBook").disabled = true;
+
+  if (!doctorId || !date) return;
+  box.innerHTML = '<div class="empty">불러오는 중…</div>';
+
+  try {
+    const slots = await api("GET", "/slots?doctorId=" + doctorId + "&date=" + date);
+    box.innerHTML = "";
+
+    if (!slots || slots.length === 0) {
+      // 빈 화면은 행동을 안내한다.
+      box.innerHTML = '<div class="empty">이 날짜에 예약 가능한 시간이 없습니다. 다른 날짜를 골라보세요.</div>';
+      return;
+    }
+
+    slots.forEach((s) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "slot";
+      b.textContent = fmtTime(s.slot_at);
+      b.setAttribute("aria-pressed", "false");
+      b.onclick = () => {
+        box.querySelectorAll(".slot").forEach((x) => x.setAttribute("aria-pressed", "false"));
+        b.setAttribute("aria-pressed", "true");
+        selectedSlot = s.slot_id;
+        $("btnBook").disabled = false;
+      };
+      box.appendChild(b);
+    });
+  } catch (e) {
+    box.innerHTML = "";
+    say(e.message, true);
+  }
+}
+
+$("doctor").onchange = loadSlots;
+$("date").onchange = loadSlots;
+
+$("btnBook").onclick = async () => {
+  if (!selectedSlot) return;
+  try {
+    const r = await api("POST", "/appointments", {
+      slot_id: selectedSlot,
+      symptom: $("symptom").value.trim() || null,
+    });
+    say("예약했습니다. 접수번호 " + r.visit_no);
+    $("symptom").value = "";
+    loadSlots();
+    loadAppointments();
+  } catch (e) {
+    // 동시 예약은 흔한 상황이다. 다음 행동을 알려준다.
+    if (e.code === "slot_taken") say("방금 다른 분이 예약했습니다. 다른 시간을 골라주세요.", true);
+    else if (e.code === "duplicate_booking") say("같은 시간에 이미 예약이 있습니다.", true);
+    else say(e.message, true);
+    loadSlots();
+  }
+};
+
+// -----------------------------------------------------------------
+// 조회
+// -----------------------------------------------------------------
+async function loadAppointments() {
+  const box = $("appts");
+  try {
+    const list = await api("GET", "/appointments");
+    box.innerHTML = "";
+
+    if (!list || list.length === 0) {
+      box.innerHTML = '<div class="empty">아직 예약이 없습니다. 위에서 시간을 골라 예약하세요.</div>';
+      return;
+    }
+
+    list.forEach((a) => {
+      const el = document.createElement("div");
+      el.className = "card " + (a.status || "").toLowerCase();
+      el.innerHTML =
+        '<div class="top"><span class="when"></span><span class="status"></span></div>' +
+        '<div class="meta"></div><div class="vno"></div>';
+      el.querySelector(".when").textContent = fmtFull(a.slot_at);
+      const st = el.querySelector(".status");
+      st.textContent = { BOOKED: "예약됨", DONE: "진료 완료", CANCELLED: "취소됨" }[a.status] || a.status;
+      st.classList.add(a.status);
+      el.querySelector(".meta").textContent =
+        a.department + " · " + a.doctor_name + (a.symptom ? " — " + a.symptom : "");
+      el.querySelector(".vno").textContent = "접수번호 " + a.visit_no;
+      box.appendChild(el);
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="empty">' + e.message + "</div>";
+  }
+}
+
+async function loadPrescriptions() {
+  const box = $("rx");
+  try {
+    const list = await api("GET", "/prescriptions");
+    box.innerHTML = "";
+
+    if (!list || list.length === 0) {
+      box.innerHTML = '<div class="empty">발급된 처방전이 없습니다.</div>';
+      return;
+    }
+
+    list.forEach((c) => {
+      const el = document.createElement("div");
+      el.className = "card";
+      const items = (c.prescription_items || [])
+        .map((i) => "<li>" + esc(i.drug_name) + " — " + esc(i.dosage) + ", "
+                    + esc(i.frequency) + ", " + i.duration_days + "일분</li>")
+        .join("");
+      el.innerHTML =
+        '<div class="top"><span class="when">' + esc(c.icd_name) + "</span>"
+        + '<span class="vno">' + (c.created_at ? fmtFull(c.created_at) : "") + "</span></div>"
+        + '<div class="meta">' + esc(c.icd_code) + (c.chief_complaint ? " · " + esc(c.chief_complaint) : "") + "</div>"
+        + (items ? "<ul>" + items + "</ul>" : '<div class="meta">처방 약품 없음</div>');
+      box.appendChild(el);
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="empty">' + e.message + "</div>";
+  }
+}
+
+// 서버 값이라도 그대로 innerHTML 에 넣지 않는다.
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// -----------------------------------------------------------------
+// 시작
+//
+// 쿠키가 살아있으면 바로 로그인 상태로 들어간다.
+// 토큰을 읽어서 판단하지 않는다 (HttpOnly). 서버에 물어본다.
+// -----------------------------------------------------------------
+(async function init() {
+  $("date").min = new Date().toISOString().slice(0, 10);
+  try {
+    await api("GET", "/appointments");
+    showLoggedIn(null);
+  } catch (e) {
+    showLoggedOut();
+  }
+})();
+</script>
+</body>
+</html>

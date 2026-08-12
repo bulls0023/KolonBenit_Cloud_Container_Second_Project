@@ -1,0 +1,135 @@
+# =====================================================================
+# patient-web - Deployment + Service
+# 계약: README v3.1 §6.9 / §11.0 / §11.3
+#
+# ⚠️ 정적 서빙만 한다. /api/bff/patient 는 Ingress 가 bff-svc 로 보낸다.
+#    따라서 BFF_BASE_URL 환경변수가 필요 없다. 브라우저가 동일 출처로
+#    호출하므로 CORS 도 불필요하다 (§21-25).
+# ⚠️ /api/bff/staff 는 nginx 가 404 로 답한다 (§6.9).
+# =====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-web
+  namespace: app
+  labels:
+    app: patient-web
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: patient-web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      # ⚠️ 0 이어야 한다. 1 이면 롤아웃 중 정상 파드가 0 이 될 수 있고,
+      #    그 순간 BFF 의 WAS 호출이 전부 503 이 된다.
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: patient-web
+    spec:
+      # PSA restricted 대응. Dockerfile 의 USER 10001 과 일치해야 한다.
+      # nginx-unprivileged 이미지의 uid 다. Dockerfile 의 USER 101 과 일치.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+
+      # 같은 노드에 몰리지 않게 한다. 노드 1대가 죽어도 서비스가 남는다.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: patient-web
+
+      containers:
+        - name: patient-web
+          image: 597106152264.dkr.ecr.ap-northeast-2.amazonaws.com/hybrid-toy/patient-web:__TAG__
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          env:
+            - name: TZ
+              value: "Asia/Seoul"
+
+          # nginx 는 JVM 이 아니다. 훨씬 적게 쓴다.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "300m"
+              memory: "128Mi"
+
+          # nginx 는 즉시 뜬다. startupProbe 가 필요 없다.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # readiness 는 /readyz. DB 커넥션까지 확인한다.
+          # 실패하면 트래픽만 빠지고 파드는 살아 있다.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # readOnlyRootFilesystem 대응.
+          # nginx 는 pid 파일과 임시 버퍼를 디스크에 쓴다.
+          # nginx.conf 에서 경로를 /tmp 로 옮겨 두었다.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/nginx
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+
+      terminationGracePeriodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-web-svc
+  namespace: app
+  labels:
+    app: patient-web
+spec:
+  # ⚠️ ClusterIP 다. WAS 는 외부에서 도달할 수 없다 (§7.2).
+  #    Ingress 에 WAS 규칙을 추가하지 않는다.
+  type: ClusterIP
+  selector:
+    app: patient-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
