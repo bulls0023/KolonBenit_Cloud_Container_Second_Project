@@ -50,7 +50,7 @@ spec:
               app: cloudflared
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared@sha256:__CLOUDFLARED_DIGEST__
+          image: cloudflare/cloudflared@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
           # ⚠️ --metrics 를 명시해야 /ready 가 고정 포트로 열린다.
           #    생략하면 cloudflared 가 임의 포트에 바인딩해 아래 probe 가
           #    항상 실패하고 파드가 무한 재시작한다.
