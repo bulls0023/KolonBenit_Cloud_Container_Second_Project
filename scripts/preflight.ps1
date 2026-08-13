@@ -98,6 +98,23 @@ Check 'cloudflared digest 치환됨' {
 } 'docker inspect --format=''{{index .RepoDigests 0}}'' cloudflare/cloudflared:latest'
 
 Write-Host ''
+Write-Host '[G3 준비]' -ForegroundColor Cyan
+
+Check 'cloudflared-secret 존재' {
+    kubectl -n $NS get secret cloudflared-secret 2>$null; $LASTEXITCODE -eq 0
+} '리드가 발급한 Tunnel Token 으로 생성한다 (구축설명서 §10.2)'
+
+Check 'TUNNEL_TOKEN 키 존재' {
+    $k = (kubectl -n $NS get secret cloudflared-secret -o json 2>$null | ConvertFrom-Json).data.PSObject.Properties.Name
+    $k -contains 'TUNNEL_TOKEN'
+}
+
+Check 'cloudflared 파드 Ready' {
+    $d = kubectl -n $NS get deploy cloudflared -o json 2>$null | ConvertFrom-Json
+    $d.status.readyReplicas -ge 1
+} 'kubectl apply --server-side -f k8s/cloudflared/'
+
+Write-Host ''
 Write-Host '=====================================================' -ForegroundColor Cyan
 Write-Host ("  PASS {0}  /  FAIL {1}" -f $pass, $fail)
 Write-Host '=====================================================' -ForegroundColor Cyan
