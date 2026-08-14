@@ -6,12 +6,27 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 버전 | **v3.1** |
+| 문서 버전 | **v3.2** |
 | 대상 환경 | `dev` (단일 환경) |
 | AWS 리전 | `ap-northeast-2` (서울) |
 | 프로젝트 식별자 | `hybrid-toy` |
-| 최종 갱신 | 2026-08-10 (🚩 G1 통과 — P2 진입 / 진료·처방 도메인 계약 확정) |
-| 하위 문서 | `구축설명서-v1.1.md` (산출물·역할·실행순서) |
+| 최종 갱신 | 2026-08-13 (🚩 **G3 통과 — 뼈대(G1~G3) 완성.** OKD Web 은 범위 밖 이관) |
+| 하위 문서 | `구축설명서-v1.2.md` (산출물·역할·실행순서) |
+
+### v3.1 → v3.2 변경 요약
+
+> **P2 실행 기록 반영.** 계약(§6)은 두 곳만 바뀌었고, 나머지는 실행 결과와 교훈이다.
+
+| # | 변경 | 근거 |
+|---|---|---|
+| 1 | **§22 신설 — P2 실행 기록 및 교훈** | WAS·BFF·Web 구현부터 G2 통과까지 |
+| 2 | §6.5 CSRF 쿠키 `Path=/` 로 교정 | 브라우저 `document.cookie` 는 현재 문서 경로만 본다 (실측) |
+| 3 | §6.2 `JWT_AUDIENCE` = `hybrid-toy-api` 재확인 | 코드가 `hybrid-toy` 였다. 배포 전 교정 |
+| 4 | §9.4 게이트에 **W1 / W2 / B1 / B2** 추가 | 실제 검증 단위를 반영 |
+| 5 | §11 파드 리소스 계약 확정 (`limits.cpu: 500m`) | ResourceQuota 소진으로 스케줄 실패 (실측) |
+| 6 | §15 트러블슈팅 **20건 추가** | 전부 실측 기반 |
+| 7 | §21 결정 로그 **#32 ~ #44** | 재논의 차단 |
+| 8 | §17.3 백로그 갱신 | 미해결 항목 이관 |
 
 ### v3.0 → v3.1 변경 요약
 
@@ -244,7 +259,7 @@ RDS는 아웃바운드 인터넷이 불필요하다. 향후 S3 export나 Lambda 
 ```
 repo/
 ├── README.md                      # 이 문서 — 전원 필독
-├── 구축설명서-v1.1.md              # 산출물·역할·실행순서
+├── 구축설명서-v1.2.md              # 산출물·역할·실행순서
 ├── .gitignore
 │
 ├── infra/
@@ -1088,13 +1103,29 @@ TLS 강제 + Secrets Manager 전환 — 둘 다 apply 전 적용 완료. §13 �
 
 ### 9.4 게이트 통과 조건
 
-| 게이트 | 조건 |
-|---|---|
-| **G1** | `terraform output` 전체 공유 + 전 팀원 `kubectl get nodes` 성공 ✅ |
-| **D1** | WAS 담당이 `app_was` 자격으로 `SELECT 1` 성공 + `Ssl_cipher` 비어 있지 않음 |
-| **D2** | ✅ **v3.1** `icd_code` 14,283 / `icd_code_synonym` 37,543 적재 + `app_was` 읽기 전용 확인 |
-| **G2** | 브라우저 → `www` 도메인 → 환자 가입·로그인·예약 성공 + 외부에서 직원 API 404 |
-| **G3** | OKD Pod → Access 엔드포인트 → **`200 application/json`** + 직원 role 분기 동작 + **DOCTOR 처방 발급 201 / NURSE 403** |
+| 게이트 | 조건 | 상태 |
+|---|---|---|
+| **G1** | `terraform output` 전체 공유 + 전 팀원 `kubectl get nodes` 성공 | ✅ 2026-08-10 |
+| **D1** | `app_was` 자격으로 `SELECT 1` + `Ssl_cipher` 비어 있지 않음 | ✅ 2026-08-12 |
+| **D2** | `icd_code` 14,283 / `icd_code_synonym` 37,543 + `app_was` 읽기 전용 | ✅ 2026-08-12 (RDS) |
+| **W1** ✅v3.2 | WAS `gradlew build` — 컨텍스트 기동 + `@Query` JPQL 전량 파싱 | ✅ |
+| **D3** ✅v3.2 | WAS `/readyz` → `db:up` = **`ddl-auto: validate` 통과** | ✅ |
+| **W2** ✅v3.2 | `verify-was.ps1` **38/38** | ✅ |
+| **B1** ✅v3.2 | BFF `/readyz` → `{"status":"ok"}` (WAS 미의존) | ✅ |
+| **B2** ✅v3.2 | `verify-bff.ps1` **45/45** | ✅ |
+| **G2** | `verify-flow1.ps1` **24/24** + **브라우저 실동작 7단계** | ✅ 2026-08-12 |
+| **G3** | `verify-flow2.ps1` **29/29** — Access Service Auth · Tunnel · 직원 3역할 · **DOCTOR 처방 201 / NURSE 403** | ✅ 2026-08-13 |
+
+> ✅ **프로젝트 뼈대(G1 → G3) 완성.** OKD Web 은 프로젝트 기간 제약으로 범위 밖으로
+> 이관했다. §17.3 백로그(NetworkPolicy·mTLS·CI/CD·HPA·관측성 등)는 착수하지 않는다.
+> 상세 기록은 §22.8.
+>
+> 🚨 **G2 는 스크립트만으로 닫히지 않는다.**
+> `verify-bff.ps1` 45개와 `verify-flow1.ps1` 22개를 전부 통과한 상태에서
+> **브라우저 회원가입이 403 으로 실패했다.** PowerShell `CookieContainer` 는
+> 조회 시 경로를 인자로 받지만, 브라우저 `document.cookie` 는 현재 문서
+> 경로에 해당하는 쿠키만 반환한다. 하네스가 브라우저보다 관대했다.
+> **사람이 브라우저로 직접 통과하는 것이 G2 의 최종 조건이다.**
 
 > ✅ **v3.1** — **D2는 WAS를 막지 않는다.** WAS 담당은 D1(커넥션)만 통과하면 착수한다. D2는 `GET /staff/icd-codes` 통합 검증 시점까지만 완료되면 된다. 임계 경로(§9.3)는 변하지 않는다.
 
@@ -1599,6 +1630,24 @@ Select-String -Path ..\..\modules\*\*.tf -Pattern "description" | Select-String 
 | ✅ **예약 목록에는 뜨는데 예약하면 `400 invalid_date`** | 슬롯 조회가 날짜 범위(그날 00:00~)로만 잘라 **지나간 시각까지 반환**. 예약 검증은 현재 시각 기준 | 조회 시작점을 `max(그날 00:00, now)` 로. **조회 필터와 생성 검증의 판정 기준을 반드시 일치시킨다** |
 | ✅ **필터가 만든 403 의 상태코드는 맞는데 본문이 빔** | 필터는 DispatcherServlet 밖이라 `getWriter()` 의 커밋 시점이 컨테이너에 좌우된다 | 바이트로 만들어 `setContentLength` → `getOutputStream()` → `flushBuffer()`. `reset()` 사용 시 `X-Trace-Id` 재설정 필수 |
 | ✅ **검증 스크립트 전 항목이 `status=-1`** | `docker compose up -d` 는 컨테이너 **시작** 시점에 반환. Spring Boot 기동에 15초 더 필요 | `up -d --wait` 사용. **전 항목 동일 실패는 연결 문제의 신호다** — 항목별로 다르게 깨져야 애플리케이션 결함이다 |
+| ✅ **`Could not find com.nimbusds:nimbus-jose-jwt:`** (버전이 빈 문자열) | **Spring Boot 4.1.0 BOM 은 nimbus-jose-jwt 를 관리하지 않는다.** Boot 3.x 는 관리했다. `spring-security-oauth2-jose` 미사용이라 전이 의존으로도 안 들어온다 | `build.gradle.kts` 에 버전 명시 (`10.9.1`). §5.3 버전 전량 핀 원칙 |
+| ✅ **`class, interface, enum, or record expected`** + 뒤이어 `illegal character: '\u00a7'` 등 | **Javadoc 안의 `**/` 가 `*/` 로 해석되어 주석이 조기 종료.** 이후 한글 설명이 코드로 파싱된다. 콘솔의 깨진 한글은 CP949 표시 문제일 뿐 원인이 아니다 | 주석에서 `**/` 제거. **커밋 전 `grep -rn '\*\*/' --include='*.java'` 로 0건 확인** |
+| ✅ **`cannot find symbol: AntPathRequestMatcher`** | **Spring Security 7 에서 `AntPathRequestMatcher` / `MvcRequestMatcher` 제거** (6.5 에서 deprecated). Boot 4.1 은 Security 7.1.0 을 끌어온다 | 문자열 오버로드(`ignoringRequestMatchers("/path/**")`) 또는 `PathPatternRequestMatcher.withDefaults().matcher(...)`. Security 7 DSL 은 URI 가 **절대경로**여야 한다 |
+| ✅ **`No qualifying bean of type 'RestClient$Builder' available`** | **Spring Boot 4 는 자동 구성을 기능별 모듈로 분리했다.** `RestClient.Builder` 자동 구성이 `spring-boot-restclient` 로 이동했고 `starter-web` 은 이를 가져오지 않는다 (Boot 3 에서는 가져왔다) | `spring-boot-starter-restclient` 추가. **다른 기능도 동일한 함정이 있다** — Boot 3 예제를 그대로 옮기면 starter 누락으로 기동에서 터진다 |
+| ✅ **BFF 경유 한글 검색만 0건** (WAS 직접은 정상) | **URI 이중 인코딩.** `UriUtils.encodeQueryParam` 으로 미리 인코딩한 문자열을 `RestClient.uri(String)` 에 넘기면 한 번 더 인코딩되어 `%` → `%25`. WAS 는 `%EB%8B%B9...` 리터럴로 검색한다 | 쿼리 값은 **URI 템플릿 변수**로 넘긴다: `get("/path?q={q}", actor, q)`. 문자열 연결 금지 |
+| ✅ **환자 POST 가 두세 번째부터 403 forbidden** | CSRF 토큰을 최초 1회만 읽어 캐시. 토큰이 갱신되면 이후 요청이 전부 거부된다. 인가 문제로 오진하기 쉽다 (CSRF 실패도 `AccessDeniedHandler` 를 탄다) | 브라우저와 동일하게 **매 요청 직전 쿠키를 다시 읽는다** |
+| ✅ **`PATIENT_TOKEN` / `XSRF-TOKEN` 쿠키를 못 읽음** | 쿠키가 `Path=/api/bff/patient` 인데 루트 URI 로 조회. `CookieContainer.GetCookies(루트)` 는 경로 제한 쿠키를 반환하지 않는다 | 조회 URI 에 경로 포함. **쿠키 Path 축소는 계약대로다 — 조회 쪽이 틀린 것** |
+| ✅ **상위 서비스 401 만 본문이 빈다** (`Content-Length: 0`). 409·400 은 정상 | **`SimpleClientHttpRequestFactory`(HttpURLConnection) 가 401 을 인증 협상으로 보고 에러 스트림을 소비한다.** 401 만 선택적으로 깨지므로 원인 추적이 매우 어렵다 | `JdkClientHttpRequestFactory`(JDK HttpClient) 로 교체. connect timeout 은 `HttpClient.Builder`, read timeout 은 팩토리에 설정 |
+| ✅ **Security 계층 오류 응답에 `X-Trace-Id` 헤더가 없고 `trace_id: null`** | 필터·핸들러에서 `HttpServletResponse.reset()` 호출. **reset() 은 이미 설정된 모든 헤더를 지운다** — `TraceIdFilter` 의 헤더와 Security 가 큐에 넣은 `Set-Cookie` 가 함께 사라진다 | `reset()` 을 쓰지 않는다. 상태·본문만 덮어쓴다. `trace_id` 는 **MDC → 응답 헤더 → 신규 생성** 3단으로 확보해 null 을 내보내지 않는다 |
+| ✅ **로그인 5회 실패 잠금이 작동하지 않음** | **인증 실패는 예외로 응답하고, 예외는 트랜잭션을 롤백한다.** 같은 트랜잭션에서 실패 카운터를 올리면 증가분이 함께 사라진다. 응답은 정상이라 어떤 시나리오도 잡지 못한다 | 카운터 증가를 **`@Transactional(propagation = REQUIRES_NEW)`** 별도 빈으로 분리. **자기호출은 프록시를 타지 않으므로 반드시 다른 빈이어야 한다.** 5회 실패 → 423 시나리오를 검증에 추가 |
+| ✅ **파드 기동 직후 첫 요청만 `503 upstream_unavailable`** | WAS 콜드스타트(Hibernate SQL 생성 + BCrypt + MVC 초기화)가 BFF read timeout 5초를 초과. 실측 `ResourceAccessException` | 타임아웃 계약은 유지한다. **WAS 파드에 `startupProbe`** 를 건다. 검증 스크립트는 워밍업 요청을 먼저 보낸다 |
+| ✅ **`NativeCommandError` 로 스크립트가 즉시 중단** (실패가 아닌데도) | **`$ErrorActionPreference='Stop'` 에서는 네이티브 명령이 stderr 에 한 줄만 써도 종료 오류로 승격된다.** `aws ecr describe-images` 의 "이미지 없음"은 정상 경로인데 stderr 로 나온다 | `aws`/`docker`/`kubectl` 을 쓰는 스크립트는 `'Continue'` 로 두고 판정을 **전부 `$LASTEXITCODE`** 로 명시한다 |
+| ✅ **롤아웃이 `0 out of N new replicas` 에서 멈추고 파드가 0개** | **ResourceQuota 의 `limits.cpu` 소진.** 파드가 아예 생성되지 않아 `describe pod`·`describe rs` 가 전부 비어 있다. 증상만 보면 원인이 안 보인다 | `kubectl -n app describe resourcequota` 로 `Used/Hard` 확인. **개별 파드 limits × 파드 수 ≤ quota** 를 항상 함께 계산한다 |
+| ✅ **`Apply failed with N conflicts: kubectl-client-side-apply`** | 과거 `kubectl apply -f`(client-side)로 만든 리소스의 필드 소유권이 남아 server-side apply 가 거부 | `--force-conflicts` 로 소유권 인수. 삭제가 아니라 이전이다 |
+| ✅ **`Set-Content -Encoding UTF8` 이 파일을 손상** | PS 5.1 은 **BOM 을 붙이고** 원본을 CP949 로 읽는다. YAML 의 BOM 은 첫 키를, Dockerfile 의 BOM 은 `FROM` 을 깨뜨린다 | `[System.IO.File]::WriteAllText(절대경로, text, (New-Object System.Text.UTF8Encoding $false))`. **.NET 은 PowerShell 의 현재 위치를 모른다 — 반드시 `Resolve-Path`** |
+| ✅ **브라우저에서만 모든 POST 가 403.** 검증 스크립트는 통과 | **CSRF 쿠키의 `Path` 를 `/api/bff/patient` 로 축소했다.** `document.cookie` 는 **현재 문서 경로**에 해당하는 쿠키만 반환하는데 화면은 `/` 에서 열린다. JS 가 토큰을 영원히 못 읽는다. PowerShell `CookieContainer` 는 경로를 지정해 조회하므로 이 결함을 놓친다 | **`XSRF-TOKEN` 의 Path 는 `/`.** JS 가 읽어야 하는 쿠키이기 때문이다. Path 축소는 `PATIENT_TOKEN`(HttpOnly) 에만 적용한다. 검증에 **루트 경로 조회** 시나리오를 추가한다 |
+| ✅ **응답 본문의 한글이 `êµ¬ì¤í¼í` 로 읽힘** | nginx 가 `Content-Type` 에 charset 을 붙이지 않아 클라이언트가 임의 해석 (PS 5.1 은 Latin-1). 브라우저는 `<meta charset>` 을 읽기 전에 헤더를 먼저 본다 | nginx 에 `charset utf-8; charset_types ...`. 검증은 **ASCII 마커로 판정**하고 인코딩은 헤더로 따로 확인 |
+| ✅ **G3 검증: `Service Token 없이 접근 차단` `status=403` 인데 FAIL** | **Cloudflare Access 의 차단 응답 자체가 `text/html` 이다** (자체 오류 페이지). 검증 스크립트가 이를 "Policy 가 Allow" 신호와 같은 것으로 오판했다 — `Content-Type` 으로 판정한 것이 잘못. 정확히 계약대로 동작 중이었다 | 판정은 **상태코드만** 본다. `302`/`200`(로그인 폼) 은 별도 항목으로 분리해 Allow 오설정을 잡는다 |
 
 ### 15.2 진단 명령
 
@@ -1717,6 +1766,15 @@ curl -s -o /dev/null -w "%{http_code}\n" https://www.kuspitalsoldeskproject.org/
 - **부상병(부상병코드) 다중 등록** — 현재 차트당 상병코드 1개
 - **처방전 PDF 발급 / 전자서명**
 - **ICD 검색 성능** — 37,543행 `LIKE '%키워드%'` 는 인덱스를 타지 않는다. 부분일치 요구가 커지면 **FULLTEXT 인덱스 + ngram 파서** 로 전환
+
+**✅ v3.2 추가 (P2 이관)**
+
+- **`SameSite=Lax` 실동작 검증** — 외부 링크 진입 흐름. 스크립트로는 판정 불가, 브라우저 수동 확인
+- **`UserDetailsServiceAutoConfiguration` 명시적 비활성화** — 현재 무해하나 자동 구성이 인증 경로에 개입할 여지를 남긴다
+- **검증 스크립트 표시 폭 패딩** — 한글은 폭이 2다. `"{0,-48}"` 은 문자 수로 세어 정렬이 깨지고 로그 오독 위험이 있다
+- **RDS 검증 데이터 정리** — `verify-*` 실행마다 환자·예약·차트가 쌓인다. 시연 데이터와 분리할지 판단
+- **WAS/BFF startupProbe 튜닝** — 현재 150초. 실측 기동은 12~15초다
+- **`patient-web` 화면 확장** — 현재 최소 구현. 예약 취소·진료 기록 조회 미구현
 
 ---
 
@@ -2183,14 +2241,209 @@ AWS가 `ON`을 `1`로 정규화하여 매 plan마다 diff가 재출현했다. �
 | 33 | **`chart.note` 매핑** | `@Lob` + **`length = 65535`** (MySQL `TEXT`) | §6.8 | **2026-08-11** |
 | 34 | **예약 가능 슬롯 기준** | `max(조회일 00:00, now)` — 조회와 생성의 판정 일치 | §6.6 | **2026-08-11** |
 | 35 | **로컬 통합 기동** | `docker compose up --build -d --wait` | 구축설명서 §6.2 | **2026-08-11** |
+| 36 | **Nimbus JOSE+JWT 버전** | **`10.9.1` 명시 핀.** Boot 4.1 BOM 미관리 | §5.3 | **2026-08-11** |
+| 37 | **BFF starter 구성** | `starter-web` + `starter-security` + `starter-validation` + **`starter-restclient`**. `starter-data-jpa` 미포함(§6.5 DB 접근 금지를 의존성으로 강제) | §5.3 | **2026-08-11** |
+| 38 | **BFF → WAS HTTP 클라이언트** | **`JdkClientHttpRequestFactory`.** `SimpleClientHttpRequestFactory` 는 401 본문을 삼킨다 | §6.6 | **2026-08-11** |
+| 39 | **BFF 아웃바운드 URI** | 쿼리 값은 **URI 템플릿 변수**로만 전달. 문자열 연결·사전 인코딩 금지 | §6.6 | **2026-08-11** |
+| 40 | **로그인 실패 카운터** | `REQUIRES_NEW` 별도 트랜잭션(`LoginAttemptService`) | §6.5 | **2026-08-11** |
+| 41 | **오류 응답 작성** | `response.reset()` 금지. `trace_id` 는 절대 null 을 내보내지 않는다 | §6.7 | **2026-08-11** |
+| 42 | **파드 CPU limits** | WAS·BFF **500m** (1코어 아님). ResourceQuota `limits.cpu: 6` | §11 (quota 소진 실측) | **2026-08-12** |
+| 43 | **server-side apply** | `--force-conflicts` 사용. 매니페스트가 단일 권위 | §11 | **2026-08-12** |
+| 44 | **CSRF 쿠키 Path** | **`/`** (JS 가 읽어야 한다). `PATIENT_TOKEN` 만 `/api/bff/patient` 로 축소 | §6.5 | **2026-08-12** |
 
 **베이스 이미지 digest 기록란** — 최초 빌드 시 채우고 커밋한다.
 
 | 이미지 | digest |
 |---|---|
 | `amazoncorretto:25-alpine` | `sha256:________` |
-| `nginxinc/nginx-unprivileged:stable-alpine` | `sha256:________` |
-| `cloudflare/cloudflared` | `sha256:________` |
+---
+
+## §22. P2 실행 기록 및 교훈 — ✅ v3.2 신설
+
+> **범위: 애플리케이션 구현부터 G2 통과까지.** 인프라(P0·P1)는 §19·§20에 있다.
+
+### 22.1 산출 순서와 실제 소요
+
+| 배치 | 산출물 | 검증 게이트 |
+|---|---|---|
+| 1 | `db/01~03.sql`, `gen-bcrypt.ps1` | 로컬 MySQL 8.0.46 실행 |
+| 1.5 | `convert-icd.ps1`, `04_icd_seed.sql` | D2 (14,283 / 37,543) |
+| 2a | WAS 빌드·엔티티·리포지토리 | 컴파일 |
+| 2b | WAS 필터·인증·업무·`JpaBootstrapTest` | **W1** |
+| 2c | `local/` compose + `verify-was.ps1` | **D3 · W2 (38/38)** |
+| 3a | BFF `JwtIssuer` · `TokenResolver` · `SecurityConfig` | JWT 계약 5개 |
+| 3b | BFF 컨트롤러 · `GlobalExceptionHandler` | 바인딩 계약 7개 |
+| 3c | compose 3단 + `verify-bff.ps1` | **B1 · B2 (45/45)** |
+| 4a | `k8s/` 매니페스트 · `deploy.ps1` · `preflight.ps1` | 파드 기동 |
+| 4b | `patient-web` · Ingress · `verify-flow1.ps1` | **G2 (24/24 + 브라우저)** |
+
+### 22.2 검증 하네스가 잡지 못한 것 — 가장 비싼 교훈
+
+**`verify-bff.ps1` 45/45 + `verify-flow1.ps1` 22/22 를 통과한 상태에서
+브라우저 회원가입이 403 으로 실패했다.**
+
+원인은 CSRF 쿠키의 `Path=/api/bff/patient` 였다.
+`document.cookie` 는 **현재 문서 경로**에 해당하는 쿠키만 반환하는데 화면은 `/` 에서
+열린다. JS 가 토큰을 영원히 읽지 못한다. PowerShell `CookieContainer` 는 조회 시
+경로를 인자로 받으므로 이 결함을 통과시켰다.
+
+| 하네스가 브라우저보다 관대한 지점 | 결과 |
+|---|---|
+| 쿠키 조회 시 경로를 지정할 수 있다 | Path 결함을 놓친다 |
+| `Secure` 속성을 강제하지 않는다 | http 에서도 쿠키가 저장된다 |
+| `SameSite` 를 해석하지 않는다 | **아직 미검증 영역** |
+
+> **원칙: 사람이 브라우저로 통과하기 전에는 G2 를 닫지 않는다.**
+> 스크립트는 회귀 방지 도구이지 최종 판정자가 아니다.
+
+### 22.3 설계 판단이 실증된 것
+
+| 설계 | 증거 |
+|---|---|
+| DB 제약이 본선, 앱 체크는 보조 | `slot_taken` · `duplicate_booking` · `duplicate_prescription` · `patient_exists` 4종이 전부 UNIQUE 위반 → 계약 코드 변환으로 동작 |
+| 취소 시 NULL 이 되는 생성 컬럼 | 취소 후 동일 슬롯 재예약 성공 |
+| 상병명 스냅샷 | 마스터 UPSERT 후에도 `chart.icd_name_snapshot` 이 발급 시점 값 유지 |
+| 3중 권한 방어 | BFF 401 → `ActorHeaderFilter` 403 → `ChartService` NURSE 403 |
+| 전달수단 바인딩 | 직원 JWT 를 쿠키에 실으면 **서명은 통과하고 바인딩만이 막는다** |
+| `X-Actor-*` 제거 | 위조 헤더 주입 → 401 |
+| `/readyz` 종속 차단 | BFF `/readyz` 가 WAS 상태를 보지 않아 WAS 재배포 중에도 BFF 가 Ready 유지 |
+| `maxUnavailable: 0` | 롤아웃 전 구간에서 정상 파드 ≥ 1 |
+
+### 22.4 반복된 실패 유형
+
+같은 뿌리에서 여러 번 터진 것들이다. 다음 배치에서 먼저 확인한다.
+
+**① PowerShell 5.1 파일 입출력 — 5회**
+
+`utf8NoBOM` 미지원 / BOM 없는 `.ps1` 을 CP949 로 파싱 / `Get-Content -Raw` 가 CP949 로 읽음 /
+`Set-Content -Encoding UTF8` 이 BOM 추가 / `.NET` 이 PowerShell 현재 위치를 모름.
+
+> **표준: 파일 치환은 `[System.IO.File]::ReadAllText/WriteAllText` + `Resolve-Path` + `UTF8Encoding($false)`.**
+> `.ps1` 자체는 **UTF-8 BOM + CRLF** 로 저장한다.
+
+**② Spring Boot 4 / Security 7 이관 — 4회**
+
+BOM 이 `nimbus-jose-jwt` 미관리 / `RestClient.Builder` 자동 구성이 별도 모듈 /
+`AntPathRequestMatcher` 제거 / Jackson 3 에서 `WRITE_DATES_AS_TIMESTAMPS` 이동.
+
+> **Boot 3 관용구를 그대로 옮기면 기동 시점에 터진다.** 표면이 넓은 BFF 에 집중됐다.
+
+**③ 매니페스트 총량 계산 — 1회, 그러나 진단이 가장 어려웠다**
+
+`limits.cpu: 1` × 4파드 = ResourceQuota `limits.cpu: 4` 정확히 소진.
+**파드가 생성되지 않아 `describe pod`·`describe rs`·로그·이벤트가 전부 비어 있다.**
+`describe resourcequota` 한 줄이 유일한 단서였다.
+
+### 22.5 배포 이력
+
+| 태그 | 대상 | 비고 |
+|---|---|---|
+| `b631234` | WAS | 최초 배포 |
+| `b631234` | BFF | 최초 배포 |
+| `b07d408` | WAS · BFF · patient-web | CPU limits 교정 |
+| `7b35c0b` | BFF · patient-web | CSRF 쿠키 Path 교정 |
+| `cad77bb` | cloudflared | digest 치환. ECR 미경유(퍼블릭 이미지 직접 배포) |
+
+> ECR immutable tag 다. 태그는 git short SHA 이며, 이 표가 이미지와 커밋을 잇는
+> 유일한 추적 수단이다. **배포할 때마다 여기에 기록한다.**
+
+### 22.6 G2 시점 미해결 항목
+
+| # | 항목 | 영향 | 처리 |
+|---|---|---|---|
+| 1 | `SameSite=Lax` 실동작 미검증 | 외부 링크 진입 흐름 | 브라우저 수동 확인 |
+| 2 | 콘솔에 초기 401 1회 | 없음. **의도된 동작** | 유지 (§22.7) |
+| 3 | `UserDetailsServiceAutoConfiguration` 경고 | 없음 | 명시적 비활성화 검토 |
+| 4 | 검증 스크립트 한글 정렬 깨짐 | 로그 오독 위험 | 표시 폭 기준 패딩으로 교체 |
+| 5 | RDS 에 검증 데이터 잔존 | 시연 데이터와 혼재 | G3 전 정리 여부 판단 |
+
+### 22.7 G3 실행 기록 — ✅ v3.2 추가
+
+### 산출
+
+| | |
+|---|---|
+| `k8s/cloudflared/deployment.yaml` | replicas 2, digest 핀 |
+| `scripts/verify-flow2.ps1` | 흐름2 검증 29개 |
+| `scripts/preflight.ps1` | G3 준비 점검 3개 추가 (14 → 17) |
+
+### 실행 순서 (실제로 통한 순서)
+
+리드(Tunnel·Access 구성 → Service Auth 정책 → Service Token 발급)
+→ EKS팀(digest 치환 → `cloudflared-secret` → 배포 → `preflight` 17/17)
+→ `verify-flow1.ps1`(차트 미작성 예약 확보) → `verify-flow2.ps1`.
+
+Tunnel 은 4커넥션(icn05·icn06 이중화)으로 등록됐고, cloudflared 파드는 2/2 Running,
+Cloudflare 대시보드 HEALTHY 를 확인했다.
+
+### 검증 스크립트 자체 결함 1건 — 인프라는 처음부터 정상이었다
+
+최초 실행에서 2건 FAIL:
+
+```
+[FAIL] Service Token 없이 접근 차단        status=403
+[FAIL] 잘못된 Service Token → 403         status=403
+```
+
+상태코드는 기대값과 정확히 일치했다. 원인은 판정 로직에 `Content-Type` 조건을
+같이 걸어둔 것 — **Cloudflare Access 의 차단 응답 자체가 `text/html`(자체 오류
+페이지)이다.** 이를 "Policy 가 Allow 일 때의 로그인 폼 신호"와 혼동해 실패로
+잘못 판정했다.
+
+`Allow` 오설정이었다면 `302` 또는 `200`(로그인 폼) 이 왔을 것이나, 실제로는
+두 경우 모두 **403** 이었다 — **Service Auth 가 처음부터 정확히 동작하고 있었다.**
+
+교정: 판정을 **상태코드만**으로 좁히고, Allow 오탐지는 `302`/`200` 여부를 보는
+별도 항목으로 분리했다 (29개로 증가). 재실행 후 인프라 재작업 없이 **29/29**.
+
+> **교훈** — 검증 실패를 발견하면 먼저 "무엇을 기대했는가" 를 의심한다.
+> 계약(§7.10)이 요구하는 것은 "브라우저 로그인 흐름으로 새지 않는다" 이지
+> "오류 응답이 JSON 이어야 한다" 가 아니다. 후자는 내가 추가한, 근거 없는 조건이었다.
+
+### 확정된 것
+
+| 항목 | 증거 |
+|---|---|
+| Access Service Auth 정확 설정 | 토큰 없음/오류 → 403, 올바른 토큰 → 401 JSON |
+| Tunnel → cloudflared → bff-svc → was-svc → RDS 전 구간 관통 | 로그인·처방 발급 성공 |
+| 3역할 로그인 + TTL 8시간 | 전부 PASS |
+| 3중 권한 방어 | NURSE 403 / ADMIN_STAFF 404(경로 없음, 403 아님) / **위조 `X-Actor-*` 401** |
+| 처방 발급 전 구간 | 201 → 스냅샷 → 409 중복 → 조회 |
+| `X-Trace-Id` 연속성 | BFF → WAS 전 구간 |
+
+---
+
+### 22.8 브라우저 콘솔의 초기 401 — 정상이다
+
+`patient-web` 은 페이지 진입 시 `GET /api/bff/patient/appointments` 를 호출해
+로그인 상태를 판정한다. 미로그인이면 401 이 오고 가입 화면을 띄운다.
+
+`PATIENT_TOKEN` 은 HttpOnly 라 JS 가 읽을 수 없다. **서버에 물어보는 것이 유일한 방법이다.**
+브라우저는 `fetch` 의 4xx 를 콘솔에 자동 출력하며 `catch` 로도 막을 수 없다.
+
+대안을 검토했으나 전부 대가가 더 크다.
+
+| 대안 | 대가 |
+|---|---|
+| `/auth/me` 신설 | 신규 경로 추가 — §7.12 위반 |
+| `localStorage` 플래그 | 서버 상태와 어긋난다 |
+| 초기 조회 제거 | 새로고침마다 로그아웃처럼 보인다 |
+
+---
+
+## 베이스 이미지 digest
+
+> ⚠️ 이 표에서 값을 **복사해 쓰지 않는다.** 렌더링된 마크다운 복사는 조용한 절단을
+> 일으킨다 (§15, 3회 사고). 기록·대조용이며, 실제 치환은 `docker inspect` 출력을 쓴다.
+
+| 이미지 | digest | 기록일 |
+|---|---|---|
+| `amazoncorretto:25-alpine` | `sha256:027310590da693629c2cf704d2f87e9359c33ee2f02bcaa777680b2f4b94f4c7` | 2026-08-11 |
+| `nginxinc/nginx-unprivileged:1.27-alpine` | `sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0` | 2026-08-12 |
+| `cloudflare/cloudflared` | `sha256:________` | ⬜ G3 |
+
+> ✅ **v3.2** — patient-web 베이스는 `stable-alpine` 이 아니라 **`1.27-alpine`** 으로 확정했다.
+> 태그가 움직이지 않는 편이 digest 재확인 주기를 예측 가능하게 만든다.
 
 ---
 
@@ -2202,6 +2455,27 @@ AWS가 `ON`을 `1`로 정규화하여 매 plan마다 diff가 재출현했다. �
 | 새 트러블슈팅 발견 | §15에 추가 |
 | 결정 사항 확정 | **§21 표에 기록** |
 | 문서와 코드 불일치 발견 | **문서가 틀린 것.** 즉시 PR |
+
+---
+
+## 프로젝트 완료 요약 — ✅ v3.2
+
+**G1 → G3 뼈대 완성.** DB(§6.8) → WAS(§6.6) → BFF(§6.5) → 환자 Web(§6.9) →
+직원 Web 진입점(§7.10) 까지 계약대로 구현·배포·검증됐다.
+
+| 구간 | 검증 |
+|---|---|
+| DB | 상병코드 14,283 + 동의어 37,543, `app_was` 최소 권한 |
+| WAS | `verify-was.ps1` 38/38 |
+| BFF | `verify-bff.ps1` 45/45 |
+| 흐름1 (환자, HTTPS) | `verify-flow1.ps1` 24/24 + 브라우저 실동작 |
+| 흐름2 (직원, Tunnel) | `verify-flow2.ps1` 29/29 |
+
+**범위 밖으로 이관한 것**: OKD Web 구현(프로젝트 기간 제약), §17.3 전체
+(NetworkPolicy·mTLS·CI/CD·HPA·관측성·Refresh Token 등).
+
+재개 시 시작점은 §17.3 백로그와 §22 실행 기록이다. 계약(§6)은 이 시점 이후
+변경되지 않았으므로 유효하다.
 
 ---
 
